@@ -1,0 +1,127 @@
+🏢 COMPREHENSIVE RENT MANAGEMENT SYSTEM - DEVELOPMENT PROMPT
+Project Overview
+Build a cutting-edge, full-stack Real Estate Rent & Billing Management System (REMS) that combines property management, tenant relations, automated billing, and financial analytics into a unified platform. The system should be scalable, mobile-first, and feature-rich with modern UX/UI principles.
+Core Technical Stack
+•	Frontend: React 18 + TypeScript + Vite + TailwindCSS + shadcn/ui
+•	Backend: Node.js + Express + TypeScript + Drizzle ORM
+•	Database: PostgreSQL with connection pooling
+•	Authentication: Session-based with role-based access control
+•	State Management: TanStack Query + React Hooks
+•	Deployment: Replit Autoscale Deployments
+•	Payment Integration: M-Pesa STK Push + Multi-gateway support
+Advanced Feature Requirements
+🏗️ Property & Asset Management
+•	Smart Property Dashboard with occupancy heat maps and revenue analytics
+•	Virtual Property Tours with 360° photo integration
+•	Maintenance Request System with priority queuing and vendor management
+•	Asset Depreciation Tracking with automated financial calculations
+•	Property Performance Metrics (ROI, cash flow, vacancy rates)
+•	Bulk Unit Operations (pricing updates, status changes, tenant assignments)
+👥 Enhanced Tenant Experience
+•	Self-Service Tenant Portal with payment history and lease documents
+•	Digital Lease Signing with e-signature integration
+•	Tenant Communication Hub with in-app messaging and notifications
+•	Maintenance Request Portal with photo uploads and status tracking
+•	Payment Scheduling with autopay and reminder systems
+•	Tenant Satisfaction Surveys with feedback analytics
+💰 Advanced Financial Management
+•	Automated Recurring Billing with customizable billing cycles
+•	Late Fee Calculations with grace periods and escalation rules
+•	Security Deposit Management with interest calculations
+•	Multi-Currency Support with real-time exchange rates
+•	Payment Gateway Integration (M-Pesa, Stripe, PayPal, Bank transfers)
+•	Financial Forecasting with AI-powered revenue predictions
+•	Tax Reporting with automated 1099 generation
+📊 Business Intelligence & Analytics
+•	Real-time Dashboards with customizable KPI widgets
+•	Predictive Analytics for vacancy patterns and rent optimization
+•	Financial Reports (P&L, cash flow, vacancy analysis, tenant turnover)
+•	Comparative Market Analysis with neighborhood rent benchmarking
+•	Performance Trends with year-over-year comparisons
+•	Export Capabilities (PDF, Excel, CSV) with scheduled reports
+🔔 Smart Notifications & Communication
+•	Multi-channel Notifications (Email, SMS, WhatsApp, Push notifications)
+•	Automated Workflow Triggers (rent reminders, lease renewals, maintenance alerts)
+•	Tenant Communication Templates with personalization
+•	Escalation Management for overdue payments and urgent maintenance
+•	Bulk Communication Tools for property-wide announcements
+🛠️ Advanced Technical Features
+•	API-First Architecture with comprehensive REST endpoints
+•	Real-time Updates using WebSocket connections
+•	Mobile-Responsive Design with PWA capabilities
+•	Offline Functionality with data synchronization
+•	Role-Based Permissions (Super Admin, Landlord, Property Manager, Agent, Tenant)
+•	Audit Trail System with comprehensive logging
+•	Data Backup & Recovery with automated daily backups
+🚀 Modern UX/UI Enhancements
+•	Dark/Light Theme with system preference detection
+•	Advanced Search & Filtering with fuzzy search capabilities
+•	Drag & Drop Interfaces for task management and file uploads
+•	Interactive Charts with drill-down capabilities
+•	Contextual Help System with guided tours
+•	Keyboard Shortcuts for power users
+•	Accessibility Compliance (WCAG 2.1 AA standards)
+🔐 Security & Compliance
+•	Two-Factor Authentication with SMS/TOTP support
+•	Data Encryption (at rest and in transit)
+•	GDPR Compliance with data export and deletion capabilities
+•	Rate Limiting and DDoS protection
+•	Session Management with secure cookie handling
+•	Input Validation with comprehensive sanitization
+🔌 Integration Capabilities
+•	Accounting Software Integration (QuickBooks, Xero)
+•	CRM Integration for lead management
+•	Calendar Integration for appointment scheduling
+•	Document Storage with cloud provider integration
+•	Payment Processor APIs with webhook handling
+•	Third-party Property Data feeds
+Database Schema Requirements
+Implement comprehensive relational schema including:
+•	Users, Properties, Units, Tenants, Leases
+•	Payments, Invoices, Utilities, Maintenance Requests
+•	Documents, Notifications, Audit Logs
+•	Property Settings, Financial Reports, Analytics Data
+•	Integration Records, Webhooks, API Keys
+Performance & Scalability
+•	Horizontal Scaling with stateless application design
+•	Database Optimization with proper indexing and query optimization
+•	Caching Strategy with Redis for session storage and frequent queries
+•	CDN Integration for static asset delivery
+•	Load Balancing capabilities for high-traffic scenarios
+•	Monitoring & Logging with comprehensive error tracking
+Development Phases
+Phase 1: Core Foundation (Weeks 1-2)
+•	User authentication and role management
+•	Basic property and unit management
+•	Tenant onboarding and lease management
+•	Simple payment recording and tracking
+Phase 2: Financial Operations (Weeks 3-4)
+•	Automated billing and invoice generation
+•	Payment gateway integrations
+•	Basic reporting and analytics
+•	Notification system implementation
+Phase 3: Advanced Features (Weeks 5-6)
+•	Maintenance management system
+•	Advanced analytics and reporting
+•	Mobile optimization and PWA features
+•	Third-party integrations
+Phase 4: Polish & Scale (Weeks 7-8)
+•	Performance optimization
+•	Advanced security implementations
+•	Comprehensive testing and bug fixes
+•	Documentation and deployment
+Success Metrics
+•	User Adoption: 90%+ tenant portal usage within 30 days
+•	Payment Efficiency: 50% reduction in manual payment processing
+•	Response Time: <2 seconds for all major operations
+•	Uptime: 99.9% availability with automated failover
+•	User Satisfaction: 4.5+ star rating from landlords and tenants
+Deliverables
+1.	Complete Source Code with comprehensive documentation
+2.	Database Schema with migration scripts
+3.	API Documentation with Postman collection
+4.	User Manuals for all user roles
+5.	Deployment Guide for Replit production deployment
+6.	Testing Suite with unit and integration tests
+This system should be production-ready, scalable, and positioned to compete with leading property management platforms while maintaining the simplicity and efficiency of modern web applications.
+

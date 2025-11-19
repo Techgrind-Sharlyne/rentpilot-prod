@@ -1,0 +1,97 @@
+/* Atlas Nova UI — Single entry stylesheet */
+
+/* 1) Tailwind layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 2) Design tokens (light) */
+:root {
+  /* HSL values only; Tailwind parses via hsl(var(--token)) */
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --muted: 215 16% 90%;
+  --muted-foreground: 221 15% 35%;
+
+  --accent: 224 75% 58%;
+  --accent-foreground: 0 0% 100%;
+
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+
+  --border: 215 16% 85%;
+  --input: 215 16% 85%;
+  --ring: 221 83% 53%;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-soft: 0 8px 24px rgba(0,0,0,0.08);
+  --shadow-elev: 0 12px 32px rgba(0,0,0,0.12);
+}
+
+/* 3) Dark mode overrides */
+.dark {
+  --background: 222 47% 7%;
+  --foreground: 0 0% 98%;
+
+  --card: 222 47% 9%;
+  --card-foreground: 0 0% 98%;
+
+  --muted: 223 19% 16%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 222 84% 60%;
+  --accent-foreground: 0 0% 100%;
+
+  --primary: 222 84% 60%;
+  --primary-foreground: 0 0% 100%;
+
+  --border: 223 19% 22%;
+  --input: 223 19% 22%;
+  --ring: 222 84% 60%;
+}
+
+/* 4) Base reset using tokens (works with shadcn defaults) */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* 5) Utility hooks for consistent surfaces */
+@layer components {
+  .ui-content {
+    @apply bg-card text-card-foreground border shadow-soft rounded-2xl;
+  }
+  .ui-popover {
+    @apply bg-popover text-popover-foreground border shadow-soft rounded-xl;
+  }
+  .ui-dropdown {
+    @apply bg-popover text-popover-foreground border shadow-soft rounded-xl;
+  }
+  .ui-kpi {
+    @apply rounded-2xl p-4 shadow-soft border bg-gradient-to-br from-primary/10 to-accent/5;
+  }
+  .ui-btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring;
+  }
+  .ui-badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium;
+  }
+}
+
+/* 6) Table helpers */
+@layer utilities {
+  .table-sticky-header thead tr { @apply sticky top-0 z-10 bg-background; }
+}

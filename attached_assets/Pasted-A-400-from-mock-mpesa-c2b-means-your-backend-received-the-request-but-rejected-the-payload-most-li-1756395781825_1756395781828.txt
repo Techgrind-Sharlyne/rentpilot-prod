@@ -1,0 +1,182 @@
+A 400 from /mock/mpesa/c2b means your backend received the request but rejected the payload (most likely a validation/body-parsing issue). Here’s how to pinpoint and fix it fast.
+
+Fix-now checklist (do these in order)
+
+Confirm the server is parsing JSON
+
+In your Express bootstrap (usually server/index.ts|js), make sure this is present before routes:
+
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+
+If you’re using a router mounted at /api, remember your real path is /api/mock/mpesa/c2b. (Front-end must hit the mounted path, not the raw subpath.)
+
+Log what’s actually arriving
+Temporarily instrument the route to see the body and any validator errors:
+
+app.post("/mock/mpesa/c2b", async (req, res) => {
+  console.log("[/mock/mpesa/c2b] headers:", req.headers);
+  console.log("[/mock/mpesa/c2b] body:", req.body);
+  // ...rest of handler
+});
+
+
+If you’re using a router: router.post("/mock/mpesa/c2b", ...) plus a console.log("router mounted at", basePath) where you do app.use(basePath, router).
+
+Match the expected payload exactly
+Most 400s here are Zod/Joi validation mismatches. Make sure your frontend POST sends the fields your backend expects and with the correct Content-Type.
+
+Front-end fetch (React):
+
+await fetch("/mock/mpesa/c2b", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    tx_id: "TX" + Math.random().toString(36).slice(2, 9).toUpperCase(),
+    amount: Number(amount),              // must be a number
+    msisdn: msisdn || "2547XXXXXXXX",
+    account: account || "A-101",
+    paid_at: new Date().toISOString(),  // ISO string
+    meta: { narration: "Rent simulation" }
+  })
+});
+
+
+Common mistakes that trigger 400:
+
+Content-Type missing or not application/json
+
+amount sent as a string (e.g., "20000" instead of 20000)
+
+Field names don’t match schema (txn_id vs tx_id, phone vs msisdn, etc.)
+
+Hitting the wrong path (your API is mounted at /api but front-end calls /mock/...)
+
+If you forward to /webhooks/mpesa, make sure the transformer is correct
+Your mock endpoint probably forwards to the webhook. Ensure it maps fields properly:
+
+// /mock/mpesa/c2b
+const p = req.body || {};
+const payload = {
+  idempotency_key: `mpesa::${p.tx_id}`,
+  tx_id: p.tx_id,
+  provider: "mpesa-mock",
+  amount: Number(p.amount),
+  msisdn: p.msisdn,
+  account: p.account,
+  paid_at: p.paid_at,
+  meta: p.meta || {}
+};
+
+
+If your webhook expects invoice_id, either provide it or ensure it’s optional.
+
+Return useful error details instead of a bare 400
+Replace silent 400s with explicit responses so you can see what failed:
+
+try {
+  // validate p here (e.g., with Zod)
+} catch (err) {
+  console.error("VALIDATION_ERROR", err);
+  return res.status(422).json({
+    ok: false,
+    code: "VALIDATION_ERROR",
+    issues: err?.issues || String(err)
+  });
+}
+
+
+If your logs show the route isn’t hit at all, it’s a routing path problem, not validation.
+
+Test the endpoint outside the UI
+Run a direct curl against the same base URL shown in the error:
+
+curl -i -X POST "https://ea2420a7-071a-468b-bccf-5acf8af9e2f9-00-3nhoaetioin0z.worf.replit.dev/mock/mpesa/c2b" \
+  -H "Content-Type: application/json" \
+  -d '{ "tx_id":"RKS7EHT124","amount":8000,"msisdn":"254711111111","account":"B-204","paid_at":"2025-08-28T12:05:00Z" }'
+
+
+If curl works but the UI fails → your front-end is likely missing Content-Type or sending wrong fields.
+
+If curl also gets 400 → validation or route mount mismatch on the server.
+
+If your API is mounted (very common)
+If you see something like:
+
+app.use("/api", router);
+
+
+then the correct URL from the browser is /api/mock/mpesa/c2b (or full: https://.../api/mock/mpesa/c2b). Update your front-end call accordingly.
+
+Drop-in minimal mock handler (safe to paste)
+
+Use this as your /mock/mpesa/c2b to get clear errors and correct forwarding:
+
+import axios from "axios";
+
+app.post("/mock/mpesa/c2b", async (req, res) => {
+  try {
+    if (!req.is("application/json")) {
+      return res.status(415).json({ ok: false, code: "UNSUPPORTED_MEDIA_TYPE" });
+    }
+
+    const { tx_id, amount, msisdn, account, paid_at, meta } = req.body || {};
+    if (!tx_id || typeof tx_id !== "string") {
+      return res.status(422).json({ ok: false, code: "INVALID_TX_ID" });
+    }
+    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+      return res.status(422).json({ ok: false, code: "INVALID_AMOUNT" });
+    }
+    if (!account && !msisdn) {
+      return res.status(422).json({ ok: false, code: "NEED_ACCOUNT_OR_MSISDN" });
+    }
+
+    const payload = {
+      idempotency_key: `mpesa::${tx_id}`,
+      tx_id,
+      provider: "mpesa-mock",
+      amount,
+      msisdn: msisdn || null,
+      account: account || null,
+      paid_at: paid_at || new Date().toISOString(),
+      meta: meta || {}
+    };
+
+    const base = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const r = await axios.post(`${base}/webhooks/mpesa`, payload, {
+      headers: { "Content-Type": "application/json" },
+      validateStatus: () => true
+    });
+
+    if (r.status >= 400) {
+      return res.status(400).json({ ok: false, code: "WEBHOOK_REJECTED", detail: r.data });
+    }
+
+    return res.json(r.data);
+  } catch (err) {
+    console.error("C2B_MOCK_ERROR", err);
+    return res.status(400).json({ ok: false, code: "C2B_MOCK_ERROR", error: String(err) });
+  }
+});
+
+If you’re using a router mounted at /api
+
+Register it as:
+
+router.post("/mock/mpesa/c2b", handler);
+// and in bootstrap:
+app.use("/api", router);
+
+
+Then call /api/mock/mpesa/c2b from the front-end.
+
+Quick outcomes to look for
+
+Network tab → Request Headers include Content-Type: application/json and the Request Payload has tx_id, amount (number), account/msisdn, paid_at.
+
+Server console prints the body object (not undefined or {}).
+
+If still 400, the JSON response should now tell you which field failed so you can align the front-end names/types.
+
+If you paste the handler + follow the checklist, you’ll turn that generic 400 into a clear 422/JSON message or a 200 with the webhook response—then the dashboard should flip status via your SSE/UI update.

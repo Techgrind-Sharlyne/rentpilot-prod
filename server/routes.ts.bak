@@ -1,0 +1,1321 @@
+﻿import { mpesaPaybillCallback } from "./modules/payments/webhook";
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./auth";
+import { 
+  insertPropertySchema,
+  insertUnitSchema,
+  insertUserSchema,
+  insertLeaseSchema,
+  insertPaymentSchema,
+  insertInvoiceSchema,
+  insertMaintenanceRequestSchema,
+} from "@shared/schema";
+import { z } from "zod";
+import { mpesaService, type MPesaPaymentRequest, type MPesaCallbackData, type MPesaPaybillCallbackData } from "./mpesa";
+import { smsService } from "./smsService";
+// at top with other imports
+
+
+
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth middleware
+  await setupAuth(app);
+
+  // Auth routes are now handled in auth.ts setupAuth()
+  // Dashboard statistics
+  app.get("/api/dashboard/stats", async (req, res) => {
+    try {
+      const stats = await storage.getDashboardStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard statistics" });
+    }
+  });
+
+  // Recent payments for dashboard
+  app.get("/api/dashboard/recent-payments", async (req, res) => {
+    try {
+      const payments = await storage.getRecentPayments(5);
+      res.json(payments);
+    } catch (error) {
+      console.error("Error fetching recent payments:", error);
+      res.status(500).json({ message: "Failed to fetch recent payments" });
+    }
+  });
+
+  // Property routes
+  app.get("/api/properties", async (req, res) => {
+    try {
+      const properties = await storage.getProperties();
+      res.json(properties);
+    } catch (error) {
+      console.error("Error fetching properties:", error);
+      res.status(500).json({ message: "Failed to fetch properties" });
+    }
+  });
+
+  app.put("/api/properties/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const property = await storage.updateProperty(id, req.body);
+      res.json(property);
+    } catch (error) {
+      console.error("Error updating property:", error);
+      res.status(500).json({ message: "Failed to update property" });
+    }
+  });
+
+  app.delete("/api/properties/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteProperty(id);
+      res.json({ message: "Property deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting property:", error);
+      const message = error.message || "Failed to delete property";
+      res.status(400).json({ message });
+    }
+  });
+
+  app.get("/api/properties/:id", async (req, res) => {
+    try {
+      const property = await storage.getProperty(req.params.id);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      res.json(property);
+    } catch (error) {
+      console.error("Error fetching property:", error);
+      res.status(500).json({ message: "Failed to fetch property" });
+    }
+  });
+
+  app.post("/api/properties", async (req, res) => {
+    try {
+      // Remove empty zipCode if provided
+      const cleanedData = {
+        ...req.body,
+        zipCode: req.body.zipCode?.trim() || null
+      };
+      
+      const validatedData = insertPropertySchema.parse(cleanedData);
+      const property = await storage.createProperty(validatedData);
+      res.status(201).json(property);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating property:", error);
+      res.status(500).json({ message: "Failed to create property" });
+    }
+  });
+  
+app.put("/api/properties/:id", async (req, res) => {
+    try {
+      const validatedData = insertPropertySchema.partial().parse(req.body);
+      const property = await storage.updateProperty(req.params.id, validatedData);
+      res.json(property);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating property:", error);
+      res.status(500).json({ message: "Failed to update property" });
+    }
+  });
+
+  app.delete("/api/properties/:id", async (req, res) => {
+    try {
+      await storage.deleteProperty(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting property:", error);
+      res.status(500).json({ message: "Failed to delete property" });
+    }
+  });
+
+  // Unit routes
+  app.get("/api/units", async (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string;
+      const units = await storage.getUnits(propertyId);
+      res.json(units);
+    } catch (error) {
+      console.error("Error fetching units:", error);
+      res.status(500).json({ message: "Failed to fetch units" });
+    }
+  });
+
+  app.get("/api/units/:id", async (req, res) => {
+    try {
+      const unit = await storage.getUnit(req.params.id);
+      if (!unit) {
+        return res.status(404).json({ message: "Unit not found" });
+      }
+      res.json(unit);
+    } catch (error) {
+      console.error("Error fetching unit:", error);
+      res.status(500).json({ message: "Failed to fetch unit" });
+    }
+  });
+
+  app.post("/api/units", async (req, res) => {
+    try {
+      const validatedData = insertUnitSchema.parse(req.body);
+      const unit = await storage.createUnit(validatedData);
+      res.status(201).json(unit);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating unit:", error);
+      res.status(500).json({ message: "Failed to create unit" });
+    }
+  });
+
+  app.put("/api/units/:id", async (req, res) => {
+    try {
+      const validatedData = insertUnitSchema.partial().parse(req.body);
+      const unit = await storage.updateUnit(req.params.id, validatedData);
+      res.json(unit);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating unit:", error);
+      res.status(500).json({ message: "Failed to update unit" });
+    }
+  });
+
+  app.delete("/api/units/:id", async (req, res) => {
+    try {
+      await storage.deleteUnit(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting unit:", error);
+      const message = error.message || "Failed to delete unit";
+      res.status(400).json({ message });
+    }
+  });
+
+  // Tenant routes
+  app.get("/api/tenants", async (req, res) => {
+    try {
+      const tenants = await storage.getTenants();
+      res.json(tenants);
+    } catch (error) {
+      console.error("Error fetching tenants:", error);
+      res.status(500).json({ message: "Failed to fetch tenants" });
+    }
+  });
+
+  app.put("/api/tenants/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const tenant = await storage.updateUser(id, req.body);
+      res.json(tenant);
+    } catch (error) {
+      console.error("Error updating tenant:", error);
+      res.status(500).json({ message: "Failed to update tenant" });
+    }
+  });
+
+  app.delete("/api/tenants/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteUser(id);
+      res.json({ message: "Tenant deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting tenant:", error);
+      const message = error.message || "Failed to delete tenant";
+      res.status(400).json({ message });
+    }
+  });
+
+  app.get("/api/tenants/:id", async (req, res) => {
+    try {
+      const tenant = await storage.getTenant(req.params.id);
+      if (!tenant) {
+        return res.status(404).json({ message: "Tenant not found" });
+      }
+      res.json(tenant);
+    } catch (error) {
+      console.error("Error fetching tenant:", error);
+      res.status(500).json({ message: "Failed to fetch tenant" });
+    }
+  });
+
+  app.post("/api/tenants", async (req, res) => {
+    try {
+      const {
+        // User-specific fields
+        firstName, lastName, email, phoneNumber, secondaryPhone,
+        idNumber, passportNumber, emergencyContactName, emergencyContactPhone,
+        emergencyContactRelation, occupation, employer, workAddress, workPhone,
+        monthlyIncome,
+        
+        // Lease-specific fields
+        unitId, monthlyRent, leaseStartDate, leaseEndDate, leaseStatus,
+        securityDeposit, waterDeposit, electricityDeposit, keyDeposit,
+        moveInDate, previousWaterReading, previousElectricityReading,
+        petAllowed, petType, petDeposit, specialTerms,
+        
+        // Any other fields
+        ...otherFields
+      } = req.body;
+      
+      // Prepare user data with proper field mapping
+      const userData = {
+        firstName,
+        lastName,
+        email,
+        phone: phoneNumber, // Map phoneNumber to phone
+        alternatePhone: secondaryPhone,
+        nationalId: idNumber,
+        emergencyContactName,
+        emergencyContactPhone,
+        role: 'tenant' as const,
+      };
+
+      // Create tenant user
+      const validatedUserData = insertUserSchema.parse(userData);
+      const tenant = await storage.createUser(validatedUserData);
+
+      // Create lease if unit is selected
+      if (unitId) {
+        const leaseData = {
+          tenantId: tenant.id,
+          unitId,
+          monthlyRent: monthlyRent || 0,
+          securityDeposit: securityDeposit || 0,
+          startDate: leaseStartDate ? new Date(leaseStartDate) : new Date(),
+          endDate: leaseEndDate ? new Date(leaseEndDate) : null,
+          moveInDate: moveInDate ? new Date(moveInDate) : new Date(),
+          status: leaseStatus || 'active',
+          terms: specialTerms,
+          petAllowed: petAllowed || false,
+        };
+
+        const validatedLeaseData = insertLeaseSchema.parse(leaseData);
+        const lease = await storage.createLease(validatedLeaseData);
+        
+        // Update unit status to occupied when lease is active
+        if (leaseStatus === 'active' || !leaseStatus) {
+          await storage.updateUnit(unitId, { status: 'occupied' });
+        }
+      }
+
+      res.status(201).json(tenant);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      
+      // Handle unique constraint violations (duplicate email)
+      if (error?.code === '23505' && error?.constraint === 'users_email_unique') {
+        return res.status(409).json({ 
+          message: "Email already exists", 
+          error: "A tenant with this email address already exists. Please use a different email address." 
+        });
+      }
+      
+      console.error("Error creating tenant:", error);
+      res.status(500).json({ message: "Failed to create tenant" });
+    }
+  });
+
+  app.put("/api/tenants/:id", async (req, res) => {
+    try {
+      const validatedData = insertUserSchema.partial().parse(req.body);
+      const tenant = await storage.updateUser(req.params.id, validatedData);
+      res.json(tenant);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating tenant:", error);
+      res.status(500).json({ message: "Failed to update tenant" });
+    }
+  });
+
+  app.delete("/api/tenants/:id", async (req, res) => {
+    try {
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting tenant:", error);
+      res.status(500).json({ message: "Failed to delete tenant" });
+    }
+  });
+
+  // Lease routes
+  app.get("/api/leases", async (req, res) => {
+    try {
+      const leases = await storage.getLeases();
+      res.json(leases);
+    } catch (error) {
+      console.error("Error fetching leases:", error);
+      res.status(500).json({ message: "Failed to fetch leases" });
+    }
+  });
+
+  app.get("/api/leases/:id", async (req, res) => {
+    try {
+      const lease = await storage.getLease(req.params.id);
+      if (!lease) {
+        return res.status(404).json({ message: "Lease not found" });
+      }
+      res.json(lease);
+    } catch (error) {
+      console.error("Error fetching lease:", error);
+      res.status(500).json({ message: "Failed to fetch lease" });
+    }
+  });
+
+  app.post("/api/leases", async (req, res) => {
+    try {
+      const validatedData = insertLeaseSchema.parse(req.body);
+      const lease = await storage.createLease(validatedData);
+      res.status(201).json(lease);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating lease:", error);
+      res.status(500).json({ message: "Failed to create lease" });
+    }
+  });
+
+  app.put("/api/leases/:id", async (req, res) => {
+    try {
+      const validatedData = insertLeaseSchema.partial().parse(req.body);
+      const lease = await storage.updateLease(req.params.id, validatedData);
+      res.json(lease);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating lease:", error);
+      res.status(500).json({ message: "Failed to update lease" });
+    }
+  });
+
+  app.delete("/api/leases/:id", async (req, res) => {
+    try {
+      await storage.deleteLease(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting lease:", error);
+      res.status(500).json({ message: "Failed to delete lease" });
+    }
+  });
+
+  // Payment routes
+  app.get("/api/payments", async (req, res) => {
+    try {
+      const payments = await storage.getPayments();
+      res.json(payments);
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  app.get("/api/payments/:id", async (req, res) => {
+    try {
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      res.json(payment);
+    } catch (error) {
+      console.error("Error fetching payment:", error);
+      res.status(500).json({ message: "Failed to fetch payment" });
+    }
+  });
+
+  app.post("/api/payments", async (req, res) => {
+    try {
+      const validatedData = insertPaymentSchema.parse(req.body);
+      const payment = await storage.createPayment(validatedData);
+      res.status(201).json(payment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating payment:", error);
+      res.status(500).json({ message: "Failed to create payment" });
+    }
+  });
+
+  app.put("/api/payments/:id", async (req, res) => {
+    try {
+      const validatedData = insertPaymentSchema.partial().parse(req.body);
+      const payment = await storage.updatePayment(req.params.id, validatedData);
+      res.json(payment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating payment:", error);
+      res.status(500).json({ message: "Failed to update payment" });
+    }
+  });
+
+  app.delete("/api/payments/:id", async (req, res) => {
+    try {
+      await storage.deletePayment(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting payment:", error);
+      res.status(500).json({ message: "Failed to delete payment" });
+    }
+  });
+
+  // Tenant payment tracking routes
+  app.get("/api/tenants/:id/payments", isAuthenticated, async (req, res) => {
+    try {
+      const tenantId = req.params.id;
+      const payments = await storage.getPaymentsByTenant(tenantId);
+      res.json(payments);
+    } catch (error) {
+      console.error("Error fetching tenant payments:", error);
+      res.status(500).json({ message: "Failed to fetch tenant payments" });
+    }
+  });
+
+  // Tenant payment summary with balance calculation
+  app.get("/api/tenants/:id/payment-summary", isAuthenticated, async (req, res) => {
+    try {
+      const tenantId = req.params.id;
+      const paymentStatus = await storage.getTenantPaymentStatus(tenantId);
+      const arrears = await storage.getArrearsForTenant(tenantId);
+      
+      res.json({
+        ...paymentStatus,
+        arrears,
+        balance: paymentStatus.totalDue - paymentStatus.totalPaid
+      });
+    } catch (error) {
+      console.error("Error fetching tenant payment summary:", error);
+      res.status(500).json({ message: "Failed to fetch payment summary" });
+    }
+  });
+
+  // All tenants rent status overview
+  app.get("/api/tenants/rent-status", isAuthenticated, async (req, res) => {
+    try {
+      const rentStatus = await storage.getClearedRentStatus();
+      res.json(rentStatus);
+    } catch (error) {
+      console.error("Error fetching rent status:", error);
+      res.status(500).json({ message: "Failed to fetch rent status" });
+    }
+  });
+
+  // SMS notification routes
+  app.post("/api/sms/payment-reminder", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId, phoneNumber, tenantName, amount, dueDate } = req.body;
+      
+      if (!tenantId || !phoneNumber || !tenantName || !amount || !dueDate) {
+        return res.status(400).json({ 
+          message: "Missing required fields: tenantId, phoneNumber, tenantName, amount, dueDate" 
+        });
+      }
+
+      const result = await smsService.sendPaymentReminder(
+        phoneNumber,
+        tenantName,
+        parseFloat(amount),
+        new Date(dueDate)
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error sending payment reminder:", error);
+      res.status(500).json({ message: "Failed to send payment reminder" });
+    }
+  });
+
+  app.post("/api/sms/overdue-notification", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId, phoneNumber, tenantName, overdueAmount, daysPastDue } = req.body;
+      
+      if (!tenantId || !phoneNumber || !tenantName || !overdueAmount || !daysPastDue) {
+        return res.status(400).json({ 
+          message: "Missing required fields: tenantId, phoneNumber, tenantName, overdueAmount, daysPastDue" 
+        });
+      }
+
+      const result = await smsService.sendOverdueNotification(
+        phoneNumber,
+        tenantName,
+        parseFloat(overdueAmount),
+        parseInt(daysPastDue)
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error sending overdue notification:", error);
+      res.status(500).json({ message: "Failed to send overdue notification" });
+    }
+  });
+
+  app.post("/api/sms/balance-inquiry", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId } = req.body;
+      
+      if (!tenantId) {
+        return res.status(400).json({ message: "tenantId is required" });
+      }
+
+      // Get tenant info and payment status
+      const tenant = await storage.getTenant(tenantId);
+      const paymentStatus = await storage.getTenantPaymentStatus(tenantId);
+      
+      if (!tenant || !tenant.phone) {
+        return res.status(404).json({ message: "Tenant not found or phone number not available" });
+      }
+
+      const tenantName = `${tenant.firstName} ${tenant.lastName}`;
+      const balance = paymentStatus.totalDue - paymentStatus.totalPaid;
+
+      const result = await smsService.sendBalanceInquiry(
+        tenant.phone,
+        tenantName,
+        paymentStatus.totalPaid,
+        paymentStatus.totalDue,
+        balance
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error sending balance inquiry:", error);
+      res.status(500).json({ message: "Failed to send balance inquiry" });
+    }
+  });
+
+  app.post("/api/sms/bulk-reminders", isAuthenticated, async (req, res) => {
+    try {
+      const { reminderType = 'upcoming' } = req.body; // 'upcoming' or 'overdue'
+      
+      const rentStatus = await storage.getClearedRentStatus();
+      const messages = [];
+
+      for (const tenant of rentStatus) {
+        if (!tenant.tenantName || !tenant.phone) continue;
+
+        // Send reminders based on status
+        if (reminderType === 'overdue' && tenant.status === 'overdue' && tenant.arrearsAmount > 0) {
+          messages.push({
+            phoneNumber: tenant.phone,
+            message: `Dear ${tenant.tenantName}, your rent payment of KES ${tenant.arrearsAmount.toLocaleString()} is overdue. Please settle this amount immediately. Contact your landlord for assistance.`
+          });
+        } else if (reminderType === 'upcoming' && tenant.status === 'partial') {
+          const remainingAmount = tenant.monthlyRent - tenant.amountPaid;
+          messages.push({
+            phoneNumber: tenant.phone,
+            message: `Hello ${tenant.tenantName}, you have a remaining balance of KES ${remainingAmount.toLocaleString()} for your rent. Please complete your payment. Thank you.`
+          });
+        }
+      }
+
+      const results = await smsService.sendBulkSMS(messages);
+      
+      res.json({
+        success: true,
+        totalSent: results.filter(r => r.success).length,
+        totalFailed: results.filter(r => !r.success).length,
+        details: results
+      });
+    } catch (error) {
+      console.error("Error sending bulk reminders:", error);
+      res.status(500).json({ message: "Failed to send bulk reminders" });
+    }
+  });
+
+  // Invoice routes
+  app.get("/api/invoices", async (req, res) => {
+    try {
+      const invoices = await storage.getInvoices();
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.get("/api/invoices/:id", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching invoice:", error);
+      res.status(500).json({ message: "Failed to fetch invoice" });
+    }
+  });
+
+  app.post("/api/invoices", async (req, res) => {
+    try {
+      const validatedData = insertInvoiceSchema.parse({
+        ...req.body,
+        invoiceNumber: `INV-${Date.now()}`, // Generate invoice number
+      });
+      const invoice = await storage.createInvoice(validatedData);
+      res.status(201).json(invoice);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating invoice:", error);
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  app.put("/api/invoices/:id", async (req, res) => {
+    try {
+      const validatedData = insertInvoiceSchema.partial().parse(req.body);
+      const invoice = await storage.updateInvoice(req.params.id, validatedData);
+      res.json(invoice);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating invoice:", error);
+      res.status(500).json({ message: "Failed to update invoice" });
+    }
+  });
+
+  app.delete("/api/invoices/:id", async (req, res) => {
+    try {
+      await storage.deleteInvoice(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      res.status(500).json({ message: "Failed to delete invoice" });
+    }
+  });
+
+  // Maintenance request routes
+  app.get("/api/maintenance-requests", async (req, res) => {
+    try {
+      const requests = await storage.getMaintenanceRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching maintenance requests:", error);
+      res.status(500).json({ message: "Failed to fetch maintenance requests" });
+    }
+  });
+
+  app.get("/api/maintenance-requests/:id", async (req, res) => {
+    try {
+      const request = await storage.getMaintenanceRequest(req.params.id);
+      if (!request) {
+        return res.status(404).json({ message: "Maintenance request not found" });
+      }
+      res.json(request);
+    } catch (error) {
+      console.error("Error fetching maintenance request:", error);
+      res.status(500).json({ message: "Failed to fetch maintenance request" });
+    }
+  });
+
+  app.post("/api/maintenance-requests", async (req, res) => {
+    try {
+      const validatedData = insertMaintenanceRequestSchema.parse(req.body);
+      const request = await storage.createMaintenanceRequest(validatedData);
+      res.status(201).json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error creating maintenance request:", error);
+      res.status(500).json({ message: "Failed to create maintenance request" });
+    }
+  });
+
+  app.put("/api/maintenance-requests/:id", async (req, res) => {
+    try {
+      const validatedData = insertMaintenanceRequestSchema.partial().parse(req.body);
+      const request = await storage.updateMaintenanceRequest(req.params.id, validatedData);
+      res.json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating maintenance request:", error);
+      res.status(500).json({ message: "Failed to update maintenance request" });
+    }
+  });
+
+  app.delete("/api/maintenance-requests/:id", async (req, res) => {
+    try {
+      await storage.deleteMaintenanceRequest(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting maintenance request:", error);
+      res.status(500).json({ message: "Failed to delete maintenance request" });
+    }
+  });
+
+  // M-Pesa Payment Routes
+  
+  // Initiate M-Pesa payment (STK Push)
+  app.post("/api/mpesa/payment", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId, unitId, amount, phoneNumber, description } = req.body;
+
+      // Validate required fields
+      if (!tenantId || !unitId || !amount || !phoneNumber) {
+        return res.status(400).json({ 
+          message: "Missing required fields: tenantId, unitId, amount, phoneNumber" 
+        });
+      }
+
+      // Create payment record in pending status
+      const paymentData = {
+        tenantId,
+        unitId,
+        amount: parseFloat(amount),
+        paymentDate: new Date(),
+        dueDate: new Date(),
+        paymentMethod: 'mpesa' as const,
+        status: 'pending' as const,
+        description: description || 'Rent Payment via M-Pesa',
+        mpesaPhoneNumber: phoneNumber,
+      };
+
+      const payment = await storage.createPayment(paymentData);
+
+      // Initiate M-Pesa STK Push
+      const mpesaRequest: MPesaPaymentRequest = {
+        amount: parseFloat(amount),
+        phoneNumber,
+        accountReference: `RENT-${payment.id.slice(0, 8)}`,
+        transactionDesc: description || 'Rent Payment',
+      };
+
+      const mpesaResponse = await mpesaService.initiateSTKPush(mpesaRequest);
+
+      if (mpesaResponse.ResponseCode === '0') {
+        // Update payment with M-Pesa checkout request ID
+        await storage.updatePayment(payment.id, {
+          mpesaCheckoutRequestId: mpesaResponse.CheckoutRequestID,
+        });
+
+        res.json({
+          success: true,
+          message: 'Payment request sent to your phone. Please enter your M-Pesa PIN.',
+          paymentId: payment.id,
+          checkoutRequestId: mpesaResponse.CheckoutRequestID,
+        });
+      } else {
+        // Update payment status to failed
+        await storage.updatePayment(payment.id, {
+          status: 'failed',
+          notes: mpesaResponse.ResponseDescription || 'M-Pesa request failed',
+        });
+
+        res.status(400).json({
+          success: false,
+          message: mpesaResponse.ResponseDescription || 'Failed to initiate payment',
+        });
+      }
+    } catch (error) {
+      console.error("Error initiating M-Pesa payment:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to initiate M-Pesa payment" 
+      });
+    }
+  });
+
+  // M-Pesa payment status check
+  app.get("/api/mpesa/status/:paymentId", isAuthenticated, async (req, res) => {
+    try {
+      const { paymentId } = req.params;
+      const payment = await storage.getPaymentById(paymentId);
+
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+
+      if (!payment.mpesaCheckoutRequestId) {
+        return res.status(400).json({ message: "No M-Pesa request found for this payment" });
+      }
+
+      // Query M-Pesa status
+      const statusResponse = await mpesaService.querySTKPushStatus(payment.mpesaCheckoutRequestId);
+
+      if (statusResponse.ResultCode === '0') {
+        // Payment successful, update payment record
+        await storage.updatePayment(paymentId, {
+          status: 'paid',
+          paymentDate: new Date(),
+          notes: 'Payment confirmed via M-Pesa',
+        });
+      } else if (statusResponse.ResultCode === '1032') {
+        // Payment cancelled by user
+        await storage.updatePayment(paymentId, {
+          status: 'failed',
+          notes: 'Payment cancelled by user',
+        });
+      }
+
+      res.json({
+        status: payment.status,
+        mpesaStatus: statusResponse.ResultDesc,
+        resultCode: statusResponse.ResultCode,
+      });
+    } catch (error) {
+      console.error("Error checking M-Pesa status:", error);
+      res.status(500).json({ message: "Failed to check payment status" });
+    }
+  });
+
+
+// --- invoice allocations (payments applied to a specific invoice) ---
+app.get("/api/invoices/:id/allocations", async (req, res) => {
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const { id } = req.params as any;
+
+    // Prefer the allocation table; fall back to payments.invoice_id for back-compat
+    const rows = (
+      await db.execute(sql`
+        WITH allocs AS (
+          SELECT
+            p.tx_id,
+            p.paid_at,
+            p.receipt_url,
+            pa.amount AS applied_amount,
+            p.amount  AS payment_amount
+          FROM payment_applications pa
+          JOIN payments p ON p.id = pa.payment_id
+          WHERE pa.invoice_id = ${id}
+        )
+        SELECT * FROM allocs
+        UNION ALL
+        SELECT p.tx_id, p.paid_at, p.receipt_url, p.amount AS applied_amount, p.amount AS payment_amount
+        FROM payments p
+        WHERE p.invoice_id = ${id}
+          AND NOT EXISTS (
+            SELECT 1 FROM payment_applications pa2 WHERE pa2.payment_id = p.id
+          )
+        ORDER BY paid_at DESC NULLS LAST
+        LIMIT 200
+      `)
+    ).rows;
+
+    res.json(rows ?? []);
+  } catch (e:any) {
+    res.status(500).json({ message: "Failed to load allocations" });
+  }
+});
+// --- end invoice allocations ---
+
+
+
+  // M-Pesa callback endpoint (webhook)
+  app.post("/api/mpesa/callback", async (req, res) => {
+    try {
+      const callbackData: MPesaCallbackData = req.body.Body.stkCallback;
+      const { CheckoutRequestID } = callbackData;
+
+      // Find payment by checkout request ID
+      const payment = await storage.getPaymentByCheckoutRequestId(CheckoutRequestID);
+      
+      if (!payment) {
+        console.log('Payment not found for checkout request ID:', CheckoutRequestID);
+        return res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+      }
+
+      // Process callback data
+      const result = mpesaService.processCallback(callbackData);
+
+      if (result.success) {
+        // Payment successful
+        await storage.updatePayment(payment.id, {
+          status: 'paid',
+          paymentDate: new Date(),
+          mpesaTransactionId: result.transactionId,
+          mpesaReceiptNumber: result.receiptNumber,
+          transactionId: result.transactionId,
+          notes: `M-Pesa payment successful. Receipt: ${result.receiptNumber}`,
+        });
+
+        // Send SMS confirmation to tenant
+        try {
+          const tenant = await storage.getTenant(payment.tenantId);
+          if (tenant && tenant.phone) {
+            const tenantName = `${tenant.firstName} ${tenant.lastName}`;
+            await smsService.sendPaymentConfirmation(
+              tenant.phone,
+              tenantName,
+              Number(payment.amount),
+              result.receiptNumber
+            );
+          }
+        } catch (smsError) {
+          console.error('Failed to send SMS confirmation:', smsError);
+          // Don't fail the payment callback due to SMS error
+        }
+        
+        console.log(`Payment ${payment.id} marked as paid. M-Pesa Receipt: ${result.receiptNumber}`);
+      } else {
+        // Payment failed
+        await storage.updatePayment(payment.id, {
+          status: 'failed',
+          notes: `M-Pesa payment failed: ${callbackData.ResultDesc}`,
+        });
+        
+        console.log(`Payment ${payment.id} marked as failed: ${callbackData.ResultDesc}`);
+      }
+
+      res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+    } catch (error) {
+      console.error("Error processing M-Pesa callback:", error);
+      res.json({ ResultCode: 1, ResultDesc: "Failed" });
+    }
+  });
+
+  // Get M-Pesa payment history for a tenant
+  app.get("/api/mpesa/payments/:tenantId", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const payments = await storage.getPaymentsByTenant(tenantId);
+      
+      const mpesaPayments = payments.filter(p => p.paymentMethod === 'mpesa');
+      
+      res.json(mpesaPayments);
+    } catch (error) {
+      console.error("Error fetching M-Pesa payments:", error);
+      res.status(500).json({ message: "Failed to fetch payment history" });
+    }
+  });
+
+  // M-Pesa paybill webhook endpoint (for automatic payments)
+  app.post("/api/mpesa/paybill-callback", async (req, res) => {
+    try {
+      console.log('Paybill callback received:', JSON.stringify(req.body, null, 2));
+      
+      const callbackData: MPesaPaybillCallbackData = req.body;
+      
+      // Process paybill callback data
+      const result = mpesaService.processPaybillCallback(callbackData);
+      
+      if (!result.success) {
+        console.log('Paybill callback processing failed');
+        return res.status(200).json({ ResultCode: 1, ResultDesc: 'Failed to process callback' });
+      }
+      
+      // Find tenant by phone number or account reference
+      const tenantData = await storage.findTenantByPhoneOrReference(
+        result.phoneNumber,
+        result.accountReference
+      );
+      
+      if (!tenantData) {
+        console.log(`No tenant found for phone ${result.phoneNumber} or reference ${result.accountReference}`);
+        // Still return success to M-Pesa to avoid retry
+        return res.status(200).json({ ResultCode: 0, ResultDesc: 'Payment received but no matching tenant found' });
+      }
+      
+      // Create payment record
+      const payment = await storage.createPaybillPayment({
+        tenantId: tenantData.tenant.id,
+        unitId: tenantData.unit.id,
+        amount: result.amount,
+        phoneNumber: result.phoneNumber,
+        transactionId: result.transactionId,
+        accountReference: result.accountReference
+      });
+      
+      console.log(`Automatic payment recorded for tenant ${tenantData.tenant.firstName} ${tenantData.tenant.lastName}, Amount: KSh ${result.amount}`);
+      
+      // Return success response to M-Pesa
+      res.status(200).json({ 
+        ResultCode: 0, 
+        ResultDesc: 'Payment processed successfully' 
+      });
+      
+    } catch (error) {
+      console.error('Error processing M-Pesa paybill callback:', error);
+      // Return success to avoid M-Pesa retries for our internal errors
+      res.status(200).json({ ResultCode: 0, ResultDesc: 'Callback received' });
+    }
+  });
+  
+  // Get payment status for landlord dashboard
+  app.get("/api/payments/rent-status", isAuthenticated, async (req, res) => {
+    try {
+      const rentStatus = await storage.getClearedRentStatus();
+      res.json(rentStatus);
+    } catch (error) {
+      console.error('Error fetching rent status:', error);
+      res.status(500).json({ message: 'Failed to fetch rent status' });
+    }
+  });
+  
+  // Get overdue payments
+  app.get("/api/payments/overdue", isAuthenticated, async (req, res) => {
+    try {
+      const overduePayments = await storage.getOverduePayments();
+      res.json(overduePayments);
+    } catch (error) {
+      console.error('Error fetching overdue payments:', error);
+      res.status(500).json({ message: 'Failed to fetch overdue payments' });
+    }
+  });
+  
+  // Get tenant payment status
+  app.get("/api/payments/tenant-status/:tenantId", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const paymentStatus = await storage.getTenantPaymentStatus(tenantId);
+      res.json(paymentStatus);
+    } catch (error) {
+      console.error('Error fetching tenant payment status:', error);
+      res.status(500).json({ message: 'Failed to fetch tenant payment status' });
+    }
+  });
+  
+  // Send STK push for manual payment request
+  app.post("/api/mpesa/manual-payment", isAuthenticated, async (req, res) => {
+    try {
+      const { tenantId, amount, description = 'Rent payment' } = req.body;
+      
+      if (!tenantId || !amount) {
+        return res.status(400).json({ message: 'Tenant ID and amount are required' });
+      }
+      
+      // Get tenant details
+      const tenant = await storage.getUser(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ message: 'Tenant not found' });
+      }
+      
+      if (!tenant.phone) {
+        return res.status(400).json({ message: 'Tenant phone number not found' });
+      }
+      
+      // Get tenant's active lease to determine unit
+      const tenantDetails = await storage.getTenant(tenantId);
+      if (!tenantDetails?.currentLease) {
+        return res.status(400).json({ message: 'No active lease found for tenant' });
+      }
+      
+      // Create pending payment record first
+      const payment = await storage.createPayment({
+        tenantId,
+        unitId: tenantDetails.currentLease.unitId,
+        amount: amount.toString(),
+        paymentDate: new Date(),
+        dueDate: new Date(),
+        paymentMethod: 'mpesa' as const,
+        status: 'pending' as const,
+        description,
+        mpesaPhoneNumber: tenant.phone,
+      });
+      
+      // Prepare M-Pesa request
+      const mpesaRequest: MPesaPaymentRequest = {
+        amount: Number(amount),
+        phoneNumber: tenant.phone,
+        accountReference: tenantDetails.currentLease.unit?.unitNumber || tenantId,
+        transactionDesc: description,
+      };
+      
+      // Initiate STK Push
+      const mpesaResponse = await mpesaService.initiateSTKPush(mpesaRequest);
+      
+      if (mpesaResponse.ResponseCode === '0') {
+        // Update payment with checkout request ID
+        await storage.updatePayment(payment.id, {
+          mpesaCheckoutRequestId: mpesaResponse.CheckoutRequestID,
+        });
+        
+        res.json({
+          success: true,
+          message: 'STK push sent successfully',
+          paymentId: payment.id,
+          checkoutRequestId: mpesaResponse.CheckoutRequestID,
+        });
+      } else {
+        // Update payment status to failed
+        await storage.updatePayment(payment.id, {
+          status: 'failed' as const,
+          notes: mpesaResponse.ResponseDescription || 'M-Pesa request failed',
+        });
+        
+        res.status(400).json({
+          success: false,
+          message: mpesaResponse.ResponseDescription || 'Failed to initiate payment',
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error initiating manual M-Pesa payment:', error);
+      res.status(500).json({ message: 'Failed to initiate payment' });
+    }
+  });
+
+  // Expenditure routes
+  app.get("/api/expenditures", async (req, res) => {
+    try {
+      const { propertyId, category } = req.query;
+      const expenditures = await storage.getExpenditures(propertyId as string, category as string);
+      res.json(expenditures);
+    } catch (error) {
+      console.error("Error fetching expenditures:", error);
+      res.status(500).json({ message: "Failed to fetch expenditures" });
+    }
+  });
+
+  app.get("/api/expenditures/:id", async (req, res) => {
+    try {
+      const expenditure = await storage.getExpenditure(req.params.id);
+      if (!expenditure) {
+        return res.status(404).json({ message: "Expenditure not found" });
+      }
+      res.json(expenditure);
+    } catch (error) {
+      console.error("Error fetching expenditure:", error);
+      res.status(500).json({ message: "Failed to fetch expenditure" });
+    }
+  });
+
+  app.post("/api/expenditures", async (req, res) => {
+    try {
+      const expenditureData = {
+        ...req.body,
+        amount: parseFloat(req.body.amount),
+        recurring: Boolean(req.body.recurring),
+        paymentDate: new Date(req.body.paymentDate),
+        nextDueDate: req.body.nextDueDate ? new Date(req.body.nextDueDate) : undefined,
+      };
+      
+      const expenditure = await storage.createExpenditure(expenditureData);
+      res.status(201).json(expenditure);
+    } catch (error) {
+      console.error("Error creating expenditure:", error);
+      res.status(500).json({ message: "Failed to create expenditure" });
+    }
+  });
+
+  app.put("/api/expenditures/:id", async (req, res) => {
+    try {
+      const expenditureData = {
+        ...req.body,
+        amount: req.body.amount ? parseFloat(req.body.amount) : undefined,
+        recurring: req.body.recurring !== undefined ? Boolean(req.body.recurring) : undefined,
+      };
+      
+      const expenditure = await storage.updateExpenditure(req.params.id, expenditureData);
+      if (!expenditure) {
+        return res.status(404).json({ message: "Expenditure not found" });
+      }
+      res.json(expenditure);
+    } catch (error) {
+      console.error("Error updating expenditure:", error);
+      res.status(500).json({ message: "Failed to update expenditure" });
+    }
+  });
+
+  app.delete("/api/expenditures/:id", async (req, res) => {
+    try {
+      await storage.deleteExpenditure(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting expenditure:", error);
+      res.status(500).json({ message: "Failed to delete expenditure" });
+    }
+  });
+
+  // Expenditure analytics
+  app.get("/api/expenditures/analytics/summary", async (req, res) => {
+    try {
+      const { propertyId, startDate, endDate } = req.query;
+      const analytics = await storage.getExpenditureAnalytics(
+        propertyId as string,
+        startDate as string,
+        endDate as string
+      );
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error fetching expenditure analytics:", error);
+      res.status(500).json({ message: "Failed to fetch expenditure analytics" });
+    }
+  });
+
+  // ======= PAYMENT SIMULATION ROUTES (Non-destructive extension) =======
+  // Import payment simulation modules
+  const { mpesaMockC2B } = await import("./modules/payments/mock");
+  const { sse } = await import("./modules/events/sse");
+
+  // SSE endpoint for real-time payment updates
+  app.get("/events", sse);
+
+  // Mock M-Pesa C2B endpoint (frontend simulator â†’ internal webhook)
+  app.post("/mock/mpesa/c2b", mpesaMockC2B);
+
+  // M-Pesa webhook endpoint (simulates actual M-Pesa webhook)
+  // Additional endpoint to get invoices by tenant (for simulation frontend)
+  app.get("/api/tenants/:id/invoices", async (req, res) => {
+    try {
+      const { status } = req.query;
+      const invoices = await storage.getTenantInvoices(req.params.id, status as string);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching tenant invoices:", error);
+      res.status(500).json({ message: "Failed to fetch tenant invoices" });
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
+
+
+
+//
+// === Minimal Payments API (list + generate receipt) ===
+// NOTE: keep this near the end of registerRoutes so it doesn't get shadowed.
+app.get('/api/payments', async (req, res) => {
+  try {
+    const { db } = await import('./db');
+    const { sql } = await import('drizzle-orm');
+    const rows = await db.execute(sql\
+      SELECT id, tx_id, amount, status, method, source, paid_at, tenant_id, unit_id, invoice_id, msisdn, receipt_url
+      FROM payments
+      ORDER BY COALESCE(paid_at, now()) DESC
+      LIMIT 500
+    \);
+    res.json(rows.rows ?? []);
+  } catch (e: any) {
+    console.error('GET /api/payments failed', e);
+    res.status(500).json({ message: 'Failed to fetch payments' });
+  }
+});
+
+app.post('/api/payments/:txId/receipt', async (req, res) => {
+  try {
+    const { txId } = req.params;
+    const { generatePaymentReceipt } = await import('./modules/payments/receipt');
+    const result = await generatePaymentReceipt(txId);
+    res.json({ ok: true, receiptUrl: result.receiptUrl });
+  } catch (e: any) {
+    console.error('POST /api/payments/:txId/receipt failed', e);
+    res.status(500).json({ message: 'Failed to generate receipt' });
+  }
+});
+//

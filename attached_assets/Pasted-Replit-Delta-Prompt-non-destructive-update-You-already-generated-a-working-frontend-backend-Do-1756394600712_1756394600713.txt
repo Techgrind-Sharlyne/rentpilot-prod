@@ -1,0 +1,364 @@
+Replit Delta Prompt (non-destructive update)
+
+You already generated a working frontend + backend. Do not change folder names or existing routes/components. Only extend the app to simulate auto-rent updates end-to-end.
+
+Guardrails (very important)
+
+Do not delete, rename, or move existing files.
+
+Preserve existing DB schema and models. If a table/field below is missing, add it via a lightweight migration (Prisma/Sequelize/SQL) without altering existing fields.
+
+Add new code in clearly named modules and register them in the current server and UI.
+
+Keep current auth, layouts, and styles.
+
+Minimal Data Additions (only if missing)
+
+Add the following if they don’t exist; otherwise reuse current equivalents.
+
+Tables/fields
+
+tenants (id, full_name, phone, unit_code, status)
+
+invoices (id, tenant_id, period_month, period_year, amount_due, amount_paid default 0, status ENUM('unpaid','partial','paid'))
+
+payments (id, tenant_id, invoice_id nullable, provider text, tx_id unique, amount int, paid_at timestamptz, raw json)
+
+idempotency_keys (id, key unique, created_at timestamptz default now)
+
+If you already track invoices/payments, only add payments.tx_id UNIQUE and a tiny idempotency_keys table.
+
+Provide a single migration that is idempotent (checks existence before creating).
+
+Backend: Add two endpoints + SSE (without touching existing ones)
+
+POST /mock/mpesa/c2b
+Purpose: Frontend simulator posts here. Validate payload, then forward internally to /webhooks/mpesa.
+
+Expected JSON:
+
+{
+  "tx_id": "RKS7EHT123",
+  "amount": 20000,
+  "msisdn": "254712345678",
+  "account": "A-101",
+  "paid_at": "2025-08-28T12:00:00Z",
+  "meta": { "narration": "Rent August 2025" }
+}
+
+
+POST /webhooks/mpesa
+Purpose: Simulate M-Pesa webhook → apply payment.
+
+Behavior (transactional):
+
+Idempotency: if idempotency_keys.key = "mpesa::<tx_id>" exists, return {ok:true, duplicate:true}.
+
+Locate tenant: first try account → tenants.unit_code; fallback to msisdn.
+
+Find oldest unpaid invoice for current month for that tenant (or use provided invoice_id if given).
+
+Insert payments (unique tx_id).
+
+Update invoice:
+
+amount_paid += amount
+
+status = 'paid' if amount_paid >= amount_due
+
+status = 'partial' if 0 < amount_paid < amount_due
+
+status = 'unpaid' if amount_paid == 0
+
+Save idempotency_keys with the computed key.
+
+Emit SSE event payment.applied with {tenant, invoiceId, tx_id, amount, newStatus, amount_paid, amount_due}.
+
+Respond { ok:true, invoice_status, tx_id }.
+
+GET /events (SSE)
+
+Standard Server-Sent Events endpoint.
+
+Keep a simple in-memory client list; broadcast payment.applied events.
+
+Implement using the same ORM/DB client you already set up. Put all new code under server/modules/payments/* (or a similar new folder) and register routes in the existing Express app without modifying unrelated routes.
+
+Frontend: Add a tiny Simulator screen & Live Events panel (non-intrusive)
+
+Do not change your existing pages. Just add:
+
+Route: /simulate-payment
+
+Component: SimulatePayment.tsx with a small form:
+
+Tenant select (use your existing tenants endpoint/state)
+
+Invoice select (filtered by tenant; show period/amount/status)
+
+Amount (KES), Phone (msisdn), Optional ref
+
+Submit → POST /mock/mpesa/c2b
+
+Show success/fail toast
+
+Reusable LiveEvents sidebar/panel that connects to GET /events (SSE) and lists most recent events (no more than 20).
+
+On your existing Tenants/Invoices page(s), without changing layout, render the new LiveEvents panel in a right/left slot if you have one, or add a small dock/fab that toggles it. Do not remove existing UI.
+
+Seeding (only add, don’t replace)
+
+Extend your current seed to ensure:
+
+3 demo tenants with unit_code: A-101, B-204, C-12
+
+Current-month invoices for each with amount_due = 20000, amount_paid = 0, status='unpaid'
+
+Keep your existing seed data; just append if they’re missing.
+
+Add script: npm run seed:rent-sim that only seeds the above if absent.
+
+Logging
+
+Reuse your current logger. Log each webhook with: tx_id, tenant/unit, amount, invoiceId, newStatus, duplicate flag.
+
+Tests (lightweight)
+
+Add 5 tests (Jest or your existing runner):
+
+Duplicate tx_id doesn’t double-apply.
+
+Partial then top-up transitions to paid.
+
+Unknown account but known msisdn resolves tenant.
+
+Overpayment marks paid and leaves no negative balances (excess handling per your current rules; if you have credits, record credit).
+
+SSE emits payment.applied on success.
+
+Acceptance Criteria (must pass without altering current structure)
+
+From /simulate-payment, pay KES 20,000 for A-101 → dashboard/invoices screen reflects PAID without page refresh (via SSE).
+
+Pay KES 8,000 for B-204 → status becomes PARTIAL; amounts update.
+
+Re-POST the same tx_id → response {ok:true, duplicate:true} and UI unchanged.
+
+Overpay C-12 with KES 25,000 → status PAID; excess handled per existing credit rules (or simply recorded in payments/raw).
+
+Logs show each event; LiveEvents panel lists them in real time.
+
+Developer Docs (append to your current README)
+
+Add a short section “Rent Payment Simulation” with:
+
+How to run seed: npm run seed:rent-sim
+
+Curl examples:
+
+curl -X POST http://localhost:3000/webhooks/mpesa \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotency_key":"mpesa::RKS7EHT123",
+    "tx_id":"RKS7EHT123",
+    "provider":"mpesa-mock",
+    "amount":20000,
+    "msisdn":"254712345678",
+    "account":"A-101",
+    "paid_at":"2025-08-28T12:00:00Z",
+    "meta":{"narration":"Rent August 2025"}
+  }'
+
+
+or:
+
+curl -X POST http://localhost:3000/mock/mpesa/c2b \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tx_id":"RKS7EHT124",
+    "amount":8000,
+    "msisdn":"254711111111",
+    "account":"B-204",
+    "paid_at":"2025-08-28T12:05:00Z"
+  }'
+
+(Optional) Ready-to-paste handler skeletons
+
+server/modules/payments/webhook.ts
+
+import type { Request, Response } from "express";
+// import your db client/models as already configured
+
+export async function mpesaWebhook(req: Request, res: Response) {
+  const p = req.body;
+  const key = `mpesa::${p.tx_id}`;
+  try {
+    // idempotency
+    const exists = await db.idempotency_keys.findUnique({ where: { key }});
+    if (exists) return res.json({ ok: true, duplicate: true });
+
+    // resolve tenant
+    const tenant = await resolveTenant(p.account, p.msisdn); // implement using existing models
+
+    // pick invoice (oldest unpaid for current month if not provided)
+    const invoice = await findTargetInvoice(tenant.id, p.invoice_id);
+
+    // transactional apply
+    await db.$transaction(async (tx) => {
+      await tx.payments.create({ data: {
+        tenant_id: tenant.id,
+        invoice_id: invoice?.id ?? null,
+        provider: "mpesa-mock",
+        tx_id: p.tx_id,
+        amount: p.amount,
+        paid_at: new Date(p.paid_at || Date.now()),
+        raw: p
+      }});
+
+      if (invoice) {
+        const newPaid = invoice.amount_paid + p.amount;
+        const newStatus = newPaid >= invoice.amount_due ? "paid" :
+                          newPaid > 0 ? "partial" : "unpaid";
+        await tx.invoices.update({
+          where: { id: invoice.id },
+          data: { amount_paid: newPaid, status: newStatus }
+        });
+        emitSse("payment.applied", {
+          tenantId: tenant.id, invoiceId: invoice.id,
+          tx_id: p.tx_id, amount: p.amount,
+          amount_paid: newPaid, amount_due: invoice.amount_due,
+          newStatus
+        });
+      } else {
+        emitSse("payment.applied", {
+          tenantId: tenant.id, invoiceId: null,
+          tx_id: p.tx_id, amount: p.amount,
+          note: "Advance/credit or no open invoice"
+        });
+      }
+
+      await tx.idempotency_keys.create({ data: { key }});
+    });
+
+    return res.json({ ok: true, invoice_status: invoice?.status ?? null, tx_id: p.tx_id });
+  } catch (e) {
+    console.error("webhook error", e);
+    return res.status(400).json({ ok: false, error: "WEBHOOK_FAILED" });
+  }
+}
+
+
+server/modules/payments/mock.ts
+
+import type { Request, Response } from "express";
+import axios from "axios";
+
+export async function mpesaMockC2B(req: Request, res: Response) {
+  const p = req.body || {};
+  const payload = {
+    idempotency_key: `mpesa::${p.tx_id}`,
+    tx_id: p.tx_id,
+    provider: "mpesa-mock",
+    amount: Number(p.amount),
+    msisdn: p.msisdn,
+    account: p.account,
+    paid_at: p.paid_at,
+    meta: p.meta || {}
+  };
+  // call our own webhook
+  const r = await axios.post(`${process.env.APP_BASE_URL || "http://localhost:3000"}/webhooks/mpesa`, payload);
+  res.json(r.data);
+}
+
+
+server/modules/events/sse.ts
+
+import type { Request, Response } from "express";
+
+const clients: Response[] = [];
+
+export function sse(req: Request, res: Response) {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive"
+  });
+  res.flushHeaders();
+  res.write("\n");
+  clients.push(res);
+  req.on("close", () => {
+    const i = clients.indexOf(res);
+    if (i >= 0) clients.splice(i, 1);
+  });
+}
+
+export function emitSse(type: string, data: any) {
+  const payload = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+  clients.forEach((c) => c.write(payload));
+}
+
+
+Frontend SimulatePayment.tsx (wire to your router)
+
+import { useEffect, useState } from "react";
+
+export default function SimulatePayment() {
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [tenantId, setTenantId] = useState("");
+  const [invoiceId, setInvoiceId] = useState("");
+  const [amount, setAmount] = useState(20000);
+  const [msisdn, setMsisdn] = useState("2547XXXXXXXX");
+  const [account, setAccount] = useState("");
+
+  useEffect(() => {
+    // reuse your existing endpoints/state
+    fetch("/api/tenants").then(r=>r.json()).then(setTenants);
+  }, []);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    fetch(`/api/tenants/${tenantId}/invoices?status=unpaid`)
+      .then(r=>r.json()).then(setInvoices);
+  }, [tenantId]);
+
+  const submit = async (e:any) => {
+    e.preventDefault();
+    const tx_id = "TX" + Math.random().toString(36).slice(2,9).toUpperCase();
+    const r = await fetch("/mock/mpesa/c2b", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({
+        tx_id, amount: Number(amount),
+        msisdn, account, invoice_id: invoiceId || undefined,
+        paid_at: new Date().toISOString()
+      })
+    });
+    const data = await r.json();
+    alert(JSON.stringify(data));
+  };
+
+  return (
+    <div className="p-4 max-w-xl space-y-3">
+      <h1 className="text-xl font-semibold">Simulate Rent Payment</h1>
+      <form className="space-y-3" onSubmit={submit}>
+        <select value={tenantId} onChange={e=>setTenantId(e.target.value)} className="border p-2 w-full">
+          <option value="">Select tenant</option>
+          {tenants.map(t => <option key={t.id} value={t.id}>{t.full_name} — {t.unit_code}</option>)}
+        </select>
+        <select value={invoiceId} onChange={e=>setInvoiceId(e.target.value)} className="border p-2 w-full">
+          <option value="">Select invoice (optional)</option>
+          {invoices.map((inv:any) => (
+            <option key={inv.id} value={inv.id}>
+              {inv.period_month}/{inv.period_year} • Due {inv.amount_due} • Paid {inv.amount_paid} • {inv.status}
+            </option>
+          ))}
+        </select>
+        <input className="border p-2 w-full" placeholder="Account (e.g., A-101)" value={account} onChange={e=>setAccount(e.target.value)} />
+        <input className="border p-2 w-full" placeholder="MSISDN (2547..)" value={msisdn} onChange={e=>setMsisdn(e.target.value)} />
+        <input className="border p-2 w-full" type="number" value={amount} onChange={e=>setAmount(e.target.value as any)} />
+        <button className="px-4 py-2 bg-black text-white rounded">Send Mock Payment</button>
+      </form>
+    </div>
+  );
+}

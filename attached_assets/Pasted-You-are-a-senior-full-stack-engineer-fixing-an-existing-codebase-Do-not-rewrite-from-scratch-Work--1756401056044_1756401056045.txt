@@ -1,0 +1,264 @@
+You are a senior full-stack engineer fixing an existing codebase. Do not rewrite from scratch. Work iteratively: detect the next failing issue, apply the smallest correct fix, re-run checks, and continue until the app runs in dev (server + client) with key pages loading and core flows working.
+
+Project facts (do not change)
+
+Monorepo root with:
+
+client/ (React 18 + Vite + TS + Tailwind + shadcn)
+
+server/ (Express TS)
+
+shared/ (Drizzle schema & zod)
+
+Dev runs Vite (client) and Express (server) concurrently.
+
+Keep Vite dev middleware only in dev, static dist in prod.
+
+DB is Postgres via Drizzle using node-postgres (pg).
+
+Auth is JWT (not Passport sessions).
+
+Payment: M-Pesa STK stubs with callback route.
+
+Notifications via WhatsApp/SMS/Email (no-op if env missing).
+
+Success criteria (must all pass before you stop)
+
+npm run check shows 0 TypeScript errors.
+
+npm run dev starts both:
+
+API on port 5000 (or $PORT) → GET /health returns { ok: true }.
+
+Vite on port 5173 → root route serves the React app; no fatal runtime errors in console.
+
+Aliased imports like @/components/... and @shared/... resolve.
+
+Basic flows work with no crashes:
+
+Login returns a JWT; client attaches Authorization: Bearer ….
+
+Landlord dashboard and Properties/Tenants pages render.
+
+“Create Property → Bulk Units → Add Tenant” works against the API.
+
+Drizzle migration can run (even if tables already exist).
+
+No EADDRINUSE hang; no blocked host errors; Vite allowedHosts OK.
+
+Environment variables (assume already set)
+
+DATABASE_URL, MIGRATION_DATABASE_URL, JWT_SECRET,
+FRONTEND_ORIGIN, VITE_ALLOWED_HOST (use "*" in Replit),
+MPESA_*, TWILIO_* (optional SMTP/AT).
+
+Do this in a loop (diagnose → edit → run)
+
+Never stop at the first error. After each change, re-run the appropriate command until it passes. Then move to the next section.
+
+0) Scripts & quick health
+
+Ensure root package.json has:
+
+"dev": "NODE_ENV=development npm-run-all --parallel dev:server dev:client"
+
+"dev:server": "tsx server/index.ts"
+
+"dev:client": "vite --config client/vite.config.ts"
+
+"check": "tsc --noEmit"
+
+"db:generate": "drizzle-kit generate"
+
+"db:push": "drizzle-kit push"
+
+If missing, add them.
+
+1) TypeScript & module resolution (fix TS2835, import extensions)
+
+Unify tsconfig:
+
+At root or per package (client/tsconfig.json, server/tsconfig.json), set:
+
+"module": "ESNext", "moduleResolution": "bundler", "target": "ES2020", "jsx": "react-jsx", "skipLibCheck": true
+
+Rationale: avoids the .js extension spam for NodeNext and matches tsx/Vite expectations.
+
+2) Client alias resolution (fix Vite “could not be resolved”)
+
+Create/update client/vite.config.ts with:
+
+alias:
+
+"@" -> client/src
+
+"@shared" -> ../shared
+
+server.allowedHosts: if VITE_ALLOWED_HOST="*" → true; else parse CSV list.
+
+Ensure client/tsconfig.json has matching paths:
+
+"@/*": ["src/*"], "@shared/*": ["../shared/*"]
+
+3) Server DB driver (fix “Cannot find package 'postgres'”)
+
+Ensure server/db.ts uses pg + drizzle-orm/node-postgres (not postgres package).
+
+Connection pool limits: { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 }.
+
+Add quiet logger with pino (dev=info, prod=warn).
+
+4) Shared schema exports (fix missing insert*Schema, type mismatches)
+
+Open shared/schema.ts:
+
+Export all used tables and zod insert schemas required by client/server:
+
+insertUserSchema, insertPropertySchema, insertUnitSchema, insertTenantSchema, insertInvoiceSchema, insertPaymentSchema, insertUtilitySchema.
+
+If schemas don’t exist yet, define minimal zod versions matching columns used by the app.
+
+Fix type imports:
+
+Anywhere importing User from @shared/schema but only users table exists, either:
+
+Export a type User = typeof users.$inferSelect, etc.
+
+Or update imports to use the exported types.
+
+Keep non-breaking additions only.
+
+5) Auth consolidation (remove legacy session)
+
+If any server/auth.ts (Passport/session) is still imported, replace with JWT:
+
+Use server/auth.jwt.ts providing jwtMiddleware, requireRole, and /api/login.
+
+Update server/routes.ts to import from ./auth.jwt.js (or extensionless after step 1).
+
+Ensure client attaches Authorization: Bearer ….
+
+6) Fix broken imports & duplicates
+
+Change any ESM relative import missing extension only if still using NodeNext; after step 1 it should be fine.
+
+Resolve duplicate exports (e.g., billing-page.tsx had two default exports/imports duplicated). Keep one implementation.
+
+Fix ReportsPage export mismatch: support default export if code imports default; otherwise update importer to named export—pick one, be consistent.
+
+7) Component/file existence
+
+For every path Vite lists as “could not be resolved” under @/components/*, @/hooks/*, @/lib/*:
+
+If the file truly doesn’t exist, create a minimal stub that compiles (e.g., a simple functional component/hook that returns placeholder UI) so the app boots.
+
+Do not delete call sites; stubs unblock the UI while you wire APIs later.
+
+8) Client runtime fixes
+
+Default arrays instead of {} to fix .map()/.find()/.slice() on {}:
+
+Where code uses const { data: tenants } = useQuery(..), provide default: const tenants = data ?? [].
+
+Remove nested <a> warnings and duplicated imports.
+
+React Query global defaults: staleTime: 120000, cacheTime: 900000, refetchOnWindowFocus: false, retry: 1.
+
+9) PDF & mail typings
+
+If TS complains for pdfkit or nodemailer, install types:
+
+npm i -D @types/pdfkit @types/nodemailer
+
+If still missing, add server/types/ambient.d.ts with:
+
+declare module 'pdfkit';
+declare module 'nodemailer';
+
+10) Drizzle migrations
+
+Ensure drizzle.config.ts points schema to ./shared/schema.ts.
+
+Run:
+
+export DATABASE_URL="$MIGRATION_DATABASE_URL"
+
+npm run db:generate && npm run db:push
+
+unset DATABASE_URL
+
+If schema already applied, continue; don’t fail the run.
+
+11) Ports, allowed hosts, CSP
+
+Kill rogue processes on 5000/5173 before starting:
+
+pkill -f "node .*server/index.ts" || true
+
+pkill -f "node dist/index.js" || true
+
+fuser -k 5000/tcp 2>/dev/null || true
+
+fuser -k 5173/tcp 2>/dev/null || true
+
+Ensure Express trusts Vite middleware in dev and serves index.html for non-/api routes.
+
+Ensure client/vite.config.ts server.allowedHosts allows the Replit preview host or "*".
+
+12) Smoke tests (must pass)
+
+Start dev: npm run dev
+
+In parallel console (or programmatically), test:
+
+curl -s http://localhost:5000/health → { "ok": true }
+
+curl -s -X POST http://localhost:5000/api/login -H 'content-type: application/json' -d '{"email":"landlord@example.com","password":"Password123"}' → returns { token }
+
+Open Vite URL (5173) → no fatal errors in browser console, pages render.
+
+13) Minimal seeds (if empty)
+
+If no users/properties exist, add a guarded seed route or script to create:
+
+landlord@example.com / Password123
+
+One property, one unit, one tenant
+
+Edit plan & commit style
+
+Make small, focused commits:
+
+chore(client): add vite config + aliases
+
+fix(server): use pg driver in db.ts
+
+fix(shared): export insert* schemas + types
+
+refactor(auth): switch to jwt middleware
+
+fix(ui): resolve duplicate exports + missing stubs
+
+chore: tsconfig bundler resolution
+
+After each commit, re-run npm run check and/or npm run dev. Continue until all Success criteria are met.
+
+If you encounter new errors
+
+Do not describe—fix them. Apply the smallest correct code change and re-run.
+
+Keep architecture intact. No rewrites. No removal of major features.
+
+Prefer stubs over deleting features to keep the app booting.
+
+When finished, print:
+
+A summary of changes (files touched, high-level fixes).
+
+The exact commands a developer should run (migrate → dev).
+
+The first-run smoke test commands (curl + URL).
+
+Any TODOs still stubbed (components created as placeholders).
+
+Begin now.

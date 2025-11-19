@@ -1,0 +1,47 @@
+1st you add a property. 
+
+Property Name, no. Of units, city and user can add property at this point but optionally the form can open further when they click see more;after clicking see more and then now be Able to water rate(optional) electricity rate(optional) MPESA (optional) then landlord or owner chooses from a radio button whether they use paybill or till number. (This will help us when setting up Mpesa payments) 
+
+If it's a paybill, you enter paybill and account number 
+If it's till number user enters store number and Mpesa till number,  rent payment penalty (optional) select penalty type..(fixed amount, percentage of rent, percentage of balance)
+
+Tax rate (optional) have a default of 7.5% filled in. 
+
+Other recurring fees(optional)drop down with (garbage, parking fee, security, internet, service fee,water, other) after selecting there another part to fill the amount for that other recurring bill selected. Once system generates the monthly rent invoice, it generates rent and this other recurring fee.  Management fee (optional)  select, fixed amount or percentage of total rent collected. Then a button to add property on the expanded property module. After adding a toast message showing success property added. 
+
+After this the page reloads with the newly added property and now has buttons like update property or add units. 
+
+If you click add unit. Goes to the unit form already selects the proper we were on when we added,
+
+Now add unit name, rent amount,  radio sections to select whether occupied, empty, under renovation. 
+
+Tax rate, (optional)
+
+Other recurring Bills (optional) remember if we had put a recurring bill on this property when onboarding the property it will show up as part of this units recurring bills, unit size. 
+
+Then click add unit.gives a toast of success. And on this added unit you can immediately be able to update unit, or add tenant. Or add another unit. 
+
+When tenant form loads. If it was the unit we were adding it will show up as already selected and also as the property is also selected, But if it's a fresh load, user will select from a drop down list and if the property or units is not there. let there be a link redirect to the properties page. And or units page. Move in date and move out date(for record keeping)
+
+Then now add tenant first name, last name and phone number, Deposit have two slots for amount paid and amount returned. Also have deposit type before amount with options to add more deposit types..as we can have rent,water deposit, electricity deposit etc. also gadgets attached to the tenant like prepaid electricity meter etc. things you can check out when they move out before you give back the rent deposit. Move in date and move out date.
+
+
+
+We can have an optional show more button. Next details are all optional.
+national I'd,email,kra pin,other Numbers,file upload..for either tenant pic or a pic of their ID,lease agreements..any infor attached to the tenant.
+
+Then we can now Add Tenant.  After adding the page will reload and now you can either edit this Tenant or view tenants (other tenants) And you can see the tenant you added among a list of other tenants.
+
+This tenants page should be very dynamic with filter features for properties,active, inactive tenants, expiring leases(or for those tenants who have given a notification to move out)
+
+You should be able to sieve by name or house unit.
+
+On our sidebar.
+
+We will have major menus with their sub menus, You have 1. Dashboard, 
+2. Financials,
+   3. Property and under property let's have a. Properties b. Units c. Utilities d. Maintenance 
+ 4. Tenants 
+5. Communication 
+6. Reports
+7. Settings

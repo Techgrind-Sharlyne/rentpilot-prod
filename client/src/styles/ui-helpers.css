@@ -1,0 +1,31 @@
+
+/* File: client/src/styles/ui-helpers.css
+   Import once in your global CSS (e.g., src/index.css) with: @import './styles/ui-helpers.css';
+*/
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* Content surfaces (cards, modals, popovers) */
+  .ui-content { @apply bg-card text-card-foreground border border-border shadow-md; }
+
+  /* Dropdowns / Select menus / Popovers */
+  .ui-dropdown, .ui-popover { @apply bg-popover text-popover-foreground border border-border shadow-md; }
+
+  /* Backdrop for dialogs */
+  .ui-backdrop { @apply fixed inset-0 bg-black/50 backdrop-blur-sm; }
+
+  /* Inputs/selects default */
+  .ui-input { @apply bg-background text-foreground border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50; }
+
+  /* Status badges */
+  .badge-cleared { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300; }
+  .badge-overdue { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300; }
+  .badge-prepaid { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300; }
+}
+
+/* Ensure popovers/menus are opaque even over busy tables */
+:root {
+  --popover: 255 255 255; /* shadcn var hook */
+}

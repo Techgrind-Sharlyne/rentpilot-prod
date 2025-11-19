@@ -1,0 +1,15 @@
+﻿{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@client/*": ["client/src/*"],
+      "@server/*": ["server/*"],
+      "@shared/*": ["packages/shared-types/*"]
+    }
+  }
+}
