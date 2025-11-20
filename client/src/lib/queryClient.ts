@@ -1,54 +1,64 @@
 // client/src/lib/queryClient.ts
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-export const API_BASE_URL = "http://127.0.0.1:5000";
+import { QueryClient } from "@tanstack/react-query";
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+export const queryClient = new QueryClient();
+
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL?.trim() || `${window.location.origin}/api`);
+
+function buildApiUrl(path: string): string {
+  // If it's already an absolute URL, just return it
+  if (/^https?:\/\//i.test(path)) {
+    return path;
   }
+
+  let clean = path.trim();
+
+  // 💥 IMPORTANT: strip any leading "/api" in the *path*.
+  // So "/api/auth/login" → "/auth/login"
+  if (clean.startsWith("/api/")) {
+    clean = clean.slice(4); // remove "/api"
+  } else if (clean === "/api") {
+    clean = "/";
+  }
+
+  // Ensure path starts with a single "/"
+  if (!clean.startsWith("/")) {
+    clean = "/" + clean;
+  }
+
+  return `${API_BASE_URL}${clean}`;
 }
 
 export async function apiRequest<T = any>(
   method: string,
-  url: string,
-  data?: unknown
+  path: string,
+  body?: unknown,
+  init?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${url}`, {
+  const url = buildApiUrl(path);
+
+  const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
     credentials: "include",
+    ...init,
   });
 
-  await throwIfResNotOk(res);
-  return res.json();
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text || res.statusText}`);
+  }
+
+  try {
+    return (await res.json()) as T;
+  } catch {
+    // some endpoints might return empty 204 responses
+    return {} as T;
+  }
 }
-
-export const getQueryFn =
-  ({ on401 }: { on401: "returnNull" | "throw" }): QueryFunction =>
-  async ({ queryKey }) => {
-    const fullUrl = `${API_BASE_URL}${queryKey.join("/")}`;
-    const res = await fetch(fullUrl, { credentials: "include" });
-
-    if (on401 === "returnNull" && res.status === 401) return null;
-    await throwIfResNotOk(res);
-
-    return res.json();
-  };
-
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
-    },
-    mutations: {
-      retry: false,
-    },
-  },
-});
