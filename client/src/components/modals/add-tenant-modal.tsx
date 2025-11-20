@@ -56,7 +56,14 @@ import {
   MapPin,
 } from "lucide-react";
 import type { UnitWithDetails, PropertyWithDetails } from "@/stubs/schema";
-import { SearchableUnitSelect } from "@/components/ui/searchable-unit-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 
 // ⚙️ Relaxed schema: only basic details are strictly required
 const tenantFormSchema = z.object({
@@ -169,35 +176,39 @@ export function AddTenantModal({
   });
 
   // Set pre-selected unit if provided
-  useEffect(() => {
-    if (preSelectedUnitId && open) {
-      form.setValue("unitId", preSelectedUnitId);
-      const unit = units?.find((u) => u.id === preSelectedUnitId);
-      if (unit) {
-        form.setValue("monthlyRent", Number(unit.monthlyRent) || undefined);
-        form.setValue("securityDeposit", Number(unit.monthlyRent) || undefined);
-      }
+useEffect(() => {
+  if (preSelectedUnitId && open) {
+    form.setValue("unitId", preSelectedUnitId);
+    const unit = units?.find((u) => u.id === preSelectedUnitId);
+    if (unit) {
+      const unitRent = Number(
+        (unit as any).rent ?? (unit as any).monthlyRent ?? 0
+      );
+      form.setValue("monthlyRent", unitRent || undefined);
+      form.setValue("securityDeposit", unitRent || undefined);
     }
-  }, [preSelectedUnitId, open, form, units]);
+  }
+}, [preSelectedUnitId, open, form, units]);
+
 
   // Auto-populate fields when unit is selected
-  const selectedUnitId = form.watch("unitId");
-  const selectedUnit = units?.find((u) => u.id === selectedUnitId);
+const selectedUnitId = form.watch("unitId");
+const selectedUnit = units?.find((u) => u.id === selectedUnitId);
 
-  useEffect(() => {
-    if (selectedUnit) {
-      form.setValue(
-        "monthlyRent",
-        Number(selectedUnit.monthlyRent) || undefined
-      );
-      if (!form.getValues("securityDeposit")) {
-        form.setValue(
-          "securityDeposit",
-          Number(selectedUnit.monthlyRent) || undefined
-        );
-      }
+useEffect(() => {
+  if (selectedUnit) {
+    const unitRent = Number(
+      (selectedUnit as any).rent ?? (selectedUnit as any).monthlyRent ?? 0
+    );
+
+    form.setValue("monthlyRent", unitRent || undefined);
+
+    if (!form.getValues("securityDeposit")) {
+      form.setValue("securityDeposit", unitRent || undefined);
     }
-  }, [selectedUnit, form]);
+  }
+}, [selectedUnit, form]);
+
 
   // 🔥 The actual tenant creation
   const createTenantMutation = useMutation({
@@ -351,9 +362,15 @@ export function AddTenantModal({
     onClose();
   };
 
+
+
+
   // Filter available units (vacant only)
-  const availableUnits =
-    units?.filter((unit) => unit.status === "vacant") || [];
+const availableUnits =
+  units?.filter((unit) =>
+    (unit.status || "").toLowerCase() === "vacant"
+  ) || [];
+
   const selectedProperty = properties?.find(
     (p) => p.id === selectedUnit?.propertyId
   );
@@ -529,33 +546,46 @@ export function AddTenantModal({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="unitId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <Building className="w-4 h-4" />
-                        Unit (optional)
-                      </FormLabel>
-                      <FormControl>
-                        <SearchableUnitSelect
-                          units={availableUnits}
-                          value={field.value || ""}
-                          onValueChange={field.onChange}
-                          placeholder={
-                            availableUnits.length > 0
-                              ? "Search and select a unit..."
-                              : "No vacant units available"
-                          }
-                          disabled={availableUnits.length === 0}
-                          data-testid="select-unit"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <FormField
+  control={form.control}
+  name="unitId"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel className="flex items-center gap-2">
+        <Building className="w-4 h-4" />
+        Unit (optional)
+      </FormLabel>
+      <FormControl>
+        <Select
+          value={field.value || ""}
+          // when user picks a unit, push the id into RHF
+          onValueChange={(value) => field.onChange(value)}
+          disabled={availableUnits.length === 0}
+        >
+          <SelectTrigger data-testid="select-unit">
+            <SelectValue
+              placeholder={
+                availableUnits.length > 0
+                  ? "Select a vacant unit..."
+                  : "No vacant units available"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent className="max-h-64">
+            {availableUnits.map((unit) => (
+              <SelectItem key={unit.id} value={unit.id}>
+                {/* keep label simple; can expand later */}
+                {unit.unitNumber}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+
 
                 {selectedUnit && selectedProperty && (
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">

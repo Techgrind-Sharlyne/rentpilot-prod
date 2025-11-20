@@ -172,31 +172,57 @@ export default function Tenants() {
     properties?.find((p) => p.id === id)?.name || (id ? `#${id.slice(0, 6)}` : "—");
 
   // Create lease
-  const createLeaseMutation = useMutation({
-    mutationFn: async ({ tenantId, unitId }: { tenantId: string; unitId: string }) => {
-      const leaseData = {
-        tenantId,
-        unitId,
-        monthlyRent: 20000,
-        securityDeposit: 20000,
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        status: "active",
-        moveInDate: new Date().toISOString().split("T")[0],
-      };
-      // NOTE: apiRequest normalizes "/api/leases" → "/api/leases" correctly
-      return await apiRequest("POST", "/api/leases", leaseData);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/units"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tenants/summary"] });
-      toast({ title: "Success", description: "Lease created successfully! Tenant can now pay rent." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create lease", variant: "destructive" });
-    },
-  });
+const createLeaseMutation = useMutation({
+  mutationFn: async ({ tenantId, unitId }: { tenantId: string; unitId: string }) => {
+    // Find the unit so we can use its configured rent
+    const selectedUnit = (units ?? []).find((u) => u.id === unitId);
+
+    const monthlyRent = Number(
+      (selectedUnit as any)?.rent ??
+      (selectedUnit as any)?.monthlyRent ??
+      0
+    );
+
+    const securityDeposit = Number(
+      (selectedUnit as any)?.securityDeposit ??
+      monthlyRent
+    );
+
+    const today = new Date();
+    const oneYearFromNow = new Date(
+      today.getTime() + 365 * 24 * 60 * 60 * 1000
+    );
+
+    const leaseData = {
+      tenantId,
+      unitId,
+      monthlyRent,
+      securityDeposit,
+      startDate: today.toISOString().split("T")[0],
+      endDate: oneYearFromNow.toISOString().split("T")[0],
+      status: "active",
+      moveInDate: today.toISOString().split("T")[0],
+    };
+
+    return await apiRequest("POST", "/api/leases", leaseData);
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/units"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/tenants/summary"] });
+    toast({
+      title: "Success",
+      description: "Lease created using the unit’s configured rent.",
+    });
+  },
+  onError: () => {
+    toast({
+      title: "Error",
+      description: "Failed to create lease",
+      variant: "destructive",
+    });
+  },
+});
 
   // Delete tenant
   const deleteTenantMutation = useMutation({
