@@ -1,4 +1,5 @@
 // client/src/pages/tenants.tsx
+
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -135,18 +136,30 @@ export default function Tenants() {
     actions: true,
   });
 
-  // Base data
+  // 🔥 Base data (NOW wired to apiRequest)
   const { data: tenants, isLoading: tenantsLoading } = useQuery<TenantWithDetails[]>({
     queryKey: ["/api/tenants"],
-  });
-  const { data: units, isLoading: unitsLoading } = useQuery<UnitWithDetails[]>({ queryKey: ["/api/units"] });
-  const { data: properties, isLoading: propertiesLoading } = useQuery<PropertyWithDetails[]>({
-    queryKey: ["/api/properties"],
+    queryFn: () => apiRequest<TenantWithDetails[]>("GET", "/tenants"),
   });
 
-  // Finance data (from our new endpoint)
-  const { data: finance = [], isLoading: financeLoading, isError: financeError } = useQuery<TenantFinanceSummary[]>({
+  const { data: units, isLoading: unitsLoading } = useQuery<UnitWithDetails[]>({
+    queryKey: ["/api/units"],
+    queryFn: () => apiRequest<UnitWithDetails[]>("GET", "/units"),
+  });
+
+  const { data: properties, isLoading: propertiesLoading } = useQuery<PropertyWithDetails[]>({
+    queryKey: ["/api/properties"],
+    queryFn: () => apiRequest<PropertyWithDetails[]>("GET", "/properties"),
+  });
+
+  // 🔥 Finance data (from tenants summary endpoint)
+  const {
+    data: finance = [],
+    isLoading: financeLoading,
+    isError: financeError,
+  } = useQuery<TenantFinanceSummary[]>({
     queryKey: ["/api/tenants/summary"],
+    queryFn: () => apiRequest<TenantFinanceSummary[]>("GET", "/tenants/summary"),
   });
 
   const financeById = useMemo(() => {
@@ -171,12 +184,12 @@ export default function Tenants() {
         status: "active",
         moveInDate: new Date().toISOString().split("T")[0],
       };
+      // NOTE: apiRequest normalizes "/api/leases" → "/api/leases" correctly
       return await apiRequest("POST", "/api/leases", leaseData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/units"] });
-      // finance may change when leases/payments change
       queryClient.invalidateQueries({ queryKey: ["/api/tenants/summary"] });
       toast({ title: "Success", description: "Lease created successfully! Tenant can now pay rent." });
     },
@@ -531,13 +544,13 @@ export default function Tenants() {
               {current.map((t) => {
                 const initials = (t.firstName?.[0] || "") + (t.lastName?.[0] || "");
                 const rent = Number(t.currentLease?.monthlyRent) || 0;
-const f = financeById.get(t.id);
+                const f = financeById.get(t.id);
 
-const paidMtd = f?.paidThisMonth ?? 0;      // MTD Paid
-const arrears = f?.arrearsToDate ?? 0;      // Arrears (to date)
-const due = f?.rent ?? 0;                   // Current Month Due
-const balance = f?.balance ?? 0;            // Balance Now (cumulative)
-const fStatus = f?.status;                  // Cleared | Overdue | Prepaid
+                const paidMtd = f?.paidThisMonth ?? 0;      // MTD Paid
+                const arrears = f?.arrearsToDate ?? 0;      // Arrears (to date)
+                const due = f?.rent ?? 0;                   // Current Month Due
+                const balance = f?.balance ?? 0;            // Balance Now (cumulative)
+                const fStatus = f?.status;                  // Cleared | Overdue | Prepaid
 
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40">
@@ -602,7 +615,9 @@ const fStatus = f?.status;                  // Cleared | Overdue | Prepaid
                             <span className="text-slate-400">–</span>
                             <span>{formatDate(t.currentLease?.endDate as any)}</span>
                           </div>
-                          <div className="text-xs text-slate-500">Move-in: {formatDate(t.currentLease?.moveInDate as any)}</div>
+                          <div className="text-xs text-slate-500">
+                            Move-in: {formatDate(t.currentLease?.moveInDate as any)}
+                          </div>
                         </div>
                       </td>
                     )}
@@ -748,7 +763,9 @@ const fStatus = f?.status;                  // Cleared | Overdue | Prepaid
         units={units || []}
         properties={properties || []}
         tenantName={
-          selectedTenantForAssignment ? `${selectedTenantForAssignment.firstName} ${selectedTenantForAssignment.lastName}` : ""
+          selectedTenantForAssignment
+            ? `${selectedTenantForAssignment.firstName} ${selectedTenantForAssignment.lastName}`
+            : ""
         }
         onAssignUnit={(unitId) => {
           if (selectedTenantForAssignment) {
