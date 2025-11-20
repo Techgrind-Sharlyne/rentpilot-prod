@@ -366,7 +366,6 @@ export default function RentIncome() {
   });
 
   // 2) map raw data -> rich TenantFinanceRow used by the UI
-  // 2) map raw data -> rich TenantFinanceRow used by the UI
   const finance: TenantFinanceRow[] = useMemo(() => {
     return financeRaw.map((row) => {
       const tenant = tenants.find((t) => t.id === row.tenantId);
@@ -379,7 +378,6 @@ export default function RentIncome() {
       // 🔑 Try to read the contractual monthly rent from the unit,
       // fall back to the ledger "rent" if it's missing.
       const monthlyRent =
-        // adjust these field names if your UnitWithDetails uses a different one
         (unit as any)?.monthlyRent ??
         (unit as any)?.rent ??
         (unit as any)?.rentAmount ??
@@ -393,20 +391,15 @@ export default function RentIncome() {
         property_name: property?.name ?? null,
         unit_id: unit?.id ?? null,
         unit_number: unit?.unitNumber ?? null,
-
-        // 👉 This is now the *contractual* monthly rent
         monthly_due: monthlyRent,
-
-        // 👉 Still pure ledger numbers
         mtd_paid: row.paidThisMonth,
         arrears: row.arrearsToDate,
-        current_month_due: row.rent, // total debits this month (all invoices)
+        current_month_due: row.rent,
         balance_now: row.balance,
         status: row.status,
       };
     });
   }, [financeRaw, tenants, properties]);
-
 
   const tenantById = useMemo(() => {
     const m = new Map<string, TenantWithDetails>();
@@ -970,7 +963,6 @@ export default function RentIncome() {
                 return;
               }
 
-              // 🎯 derive unitId from finance summary row for this tenant
               const rowForTenant = finance.find(
                 (r) => r.tenant_id === selectedTenantId
               );
@@ -1348,11 +1340,9 @@ export default function RentIncome() {
                 if (!anyChecked) return;
 
                 if (viewMode === "finance") {
-                  // checkedIds contain tenant_ids in finance view
                   const firstTenantId = [...checkedIds][0];
                   if (firstTenantId) handleAdjustArrears(firstTenantId);
                 } else {
-                  // payments view: checkedIds contain payment ids; map to tenant
                   const firstPaymentId = [...checkedIds][0];
                   const payment = filteredPayments.find(
                     (p) => (p.id ?? "") === firstPaymentId
@@ -1414,7 +1404,6 @@ export default function RentIncome() {
                       label="Status"
                       sortKey="status"
                     />
-                    {/* Single Actions column */}
                     <th className="px-4 py-2 text-left whitespace-nowrap">
                       <span>Actions</span>
                     </th>
@@ -1516,7 +1505,6 @@ export default function RentIncome() {
                         </td>
                       )}
 
-                      {/* Single clean action -> open modal with tabs */}
                       <td className="px-4 py-2 align-top">
                         <Button
                           size="sm"
@@ -1610,7 +1598,6 @@ export default function RentIncome() {
                               </Button>
                             ) : null}
 
-                            {/* Manage (record / adjust) via modal */}
                             {r.tenant_id && (
                               <Button
                                 size="sm"
@@ -1871,7 +1858,6 @@ export default function RentIncome() {
         onOpenChange={(v) => {
           setFinanceModalOpen(v);
           if (!v) {
-            // refresh after closing modal so balances reflect latest ledger
             queryClient.invalidateQueries({ queryKey: ["/api/tenants/summary"] });
             queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
           }
