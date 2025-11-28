@@ -2,7 +2,7 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./auth";
+import { isAuthenticated } from "./auth";
 import {
   insertPropertySchema,
   insertUnitSchema,
@@ -20,21 +20,22 @@ import {
   type MPesaPaybillCallbackData,
 } from "./mpesa";
 import { smsService } from "./smsService";
-import fs from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { getTenantFinanceSummary } from "./routes.finance-summary";
+
 // ---------------------------------------------------------------------
 // registerRoutes
 // ---------------------------------------------------------------------
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
+  // NOTE:
+  // Session + auth wiring (getSession() + setupAuth(app)) now lives in server/index.ts.
+  // DO NOT call setupAuth or getSession here to avoid double session stores.
 
-  // ===== Dashboard =====
-  app.get("/api/dashboard/stats", async (_req, res) => {
+  // ===== Dashboard (private) =====
+  app.get("/api/dashboard/stats", isAuthenticated, async (_req, res) => {
     try {
       const stats = await storage.getDashboardStats();
       res.json(stats);
@@ -44,7 +45,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/dashboard/recent-payments", async (_req, res) => {
+  app.get("/api/dashboard/recent-payments", isAuthenticated, async (_req, res) => {
     try {
       const payments = await storage.getRecentPayments(5);
       res.json(payments);
@@ -54,11 +55,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Summary =====
-  app.get("/api/tenants/summary", getTenantFinanceSummary);
+  // ===== Summary (private) =====
+  app.get("/api/tenants/summary", isAuthenticated, getTenantFinanceSummary);
 
-  // ===== Properties =====
-  app.get("/api/properties", async (_req, res) => {
+  // ===== Properties (private) =====
+  app.get("/api/properties", isAuthenticated, async (_req, res) => {
     try {
       const properties = await storage.getProperties();
       res.json(properties);
@@ -68,7 +69,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/properties/:id", async (req, res) => {
+  app.get("/api/properties/:id", isAuthenticated, async (req, res) => {
     try {
       const property = await storage.getProperty(req.params.id);
       if (!property) return res.status(404).json({ message: "Property not found" });
@@ -79,7 +80,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/properties", async (req, res) => {
+  app.post("/api/properties", isAuthenticated, async (req, res) => {
     try {
       const cleanedData = { ...req.body, zipCode: req.body.zipCode?.trim() || null };
       const validatedData = insertPropertySchema.parse(cleanedData);
@@ -94,7 +95,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/properties/:id", async (req, res) => {
+  app.put("/api/properties/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertPropertySchema.partial().parse(req.body);
       const property = await storage.updateProperty(req.params.id, validatedData);
@@ -108,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/properties/:id", async (req, res) => {
+  app.delete("/api/properties/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteProperty(req.params.id);
       res.status(204).send();
@@ -118,8 +119,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Units =====
-  app.get("/api/units", async (req, res) => {
+  // ===== Units (private) =====
+  app.get("/api/units", isAuthenticated, async (req, res) => {
     try {
       const propertyId = req.query.propertyId as string;
       const units = await storage.getUnits(propertyId);
@@ -130,7 +131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/units/:id", async (req, res) => {
+  app.get("/api/units/:id", isAuthenticated, async (req, res) => {
     try {
       const unit = await storage.getUnit(req.params.id);
       if (!unit) return res.status(404).json({ message: "Unit not found" });
@@ -141,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/units", async (req, res) => {
+  app.post("/api/units", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertUnitSchema.parse(req.body);
       const unit = await storage.createUnit(validatedData);
@@ -155,7 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/units/:id", async (req, res) => {
+  app.put("/api/units/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertUnitSchema.partial().parse(req.body);
       const unit = await storage.updateUnit(req.params.id, validatedData);
@@ -169,7 +170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/units/:id", async (req, res) => {
+  app.delete("/api/units/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteUnit(req.params.id);
       res.status(204).send();
@@ -179,8 +180,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Tenants =====
-  app.get("/api/tenants", async (_req, res) => {
+  // ===== Tenants (private) =====
+  app.get("/api/tenants", isAuthenticated, async (_req, res) => {
     try {
       const tenants = await storage.getTenants();
       res.json(tenants);
@@ -190,7 +191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tenants/:id", async (req, res) => {
+  app.get("/api/tenants/:id", isAuthenticated, async (req, res) => {
     try {
       const tenant = await storage.getTenant(req.params.id);
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
@@ -201,7 +202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tenants", async (req, res) => {
+  app.post("/api/tenants", isAuthenticated, async (req, res) => {
     try {
       const {
         firstName,
@@ -270,7 +271,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error?.code === "23505" && error?.constraint === "users_email_unique") {
         return res.status(409).json({
           message: "Email already exists",
-          error: "A tenant with this email address already exists. Please use a different email address.",
+          error:
+            "A tenant with this email address already exists. Please use a different email address.",
         });
       }
       console.error("Error creating tenant:", error);
@@ -278,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/tenants/:id", async (req, res) => {
+  app.put("/api/tenants/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertUserSchema.partial().parse(req.body);
       const tenant = await storage.updateUser(req.params.id, validatedData);
@@ -292,7 +294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/tenants/:id", async (req, res) => {
+  app.delete("/api/tenants/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteUser(req.params.id);
       res.status(204).send();
@@ -302,8 +304,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Leases =====
-  app.get("/api/leases", async (_req, res) => {
+  // ===== Leases (private) =====
+  app.get("/api/leases", isAuthenticated, async (_req, res) => {
     try {
       const leases = await storage.getLeases();
       res.json(leases);
@@ -313,7 +315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/leases/:id", async (req, res) => {
+  app.get("/api/leases/:id", isAuthenticated, async (req, res) => {
     try {
       const lease = await storage.getLease(req.params.id);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
@@ -324,7 +326,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/leases", async (req, res) => {
+  app.post("/api/leases", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertLeaseSchema.parse(req.body);
       const lease = await storage.createLease(validatedData);
@@ -338,7 +340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/leases/:id", async (req, res) => {
+  app.put("/api/leases/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertLeaseSchema.partial().parse(req.body);
       const lease = await storage.updateLease(req.params.id, validatedData);
@@ -352,7 +354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/leases/:id", async (req, res) => {
+  app.delete("/api/leases/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteLease(req.params.id);
       res.status(204).send();
@@ -362,8 +364,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Payments CRUD =====
-  app.get("/api/payments", async (_req, res) => {
+  // ===== Payments CRUD (private) =====
+  app.get("/api/payments", isAuthenticated, async (_req, res) => {
     try {
       const payments = await storage.getPayments();
       res.json(payments);
@@ -373,7 +375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payments/:id", async (req, res) => {
+  app.get("/api/payments/:id", isAuthenticated, async (req, res) => {
     try {
       const payment = await storage.getPayment(req.params.id);
       if (!payment) return res.status(404).json({ message: "Payment not found" });
@@ -384,7 +386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments", async (req, res) => {
+  app.post("/api/payments", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertPaymentSchema.parse(req.body);
       const payment = await storage.createPayment(validatedData);
@@ -398,7 +400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payments/:id", async (req, res) => {
+  app.put("/api/payments/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertPaymentSchema.partial().parse(req.body);
       const payment = await storage.updatePayment(req.params.id, validatedData);
@@ -412,7 +414,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payments/:id", async (req, res) => {
+  app.delete("/api/payments/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deletePayment(req.params.id);
       res.status(204).send();
@@ -422,7 +424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Tenant payment visibility =====
+  // ===== Tenant payment visibility (private) =====
   app.get("/api/tenants/:id/payments", isAuthenticated, async (req, res) => {
     try {
       const payments = await storage.getPaymentsByTenant(req.params.id);
@@ -459,7 +461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== SMS =====
+  // ===== SMS (private) =====
   app.post("/api/sms/payment-reminder", isAuthenticated, async (req, res) => {
     try {
       const { tenantId, phoneNumber, tenantName, amount, dueDate } = req.body;
@@ -534,7 +536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sms/bulk-reminders", isAuthenticated, async (req, res) => {
     try {
-      const { reminderType = "upcoming" } = req.body; // 'upcoming' or 'overdue'
+      const { reminderType = "upcoming" } = req.body;
       const rentStatus = await storage.getClearedRentStatus();
       const messages: Array<{ phoneNumber: string; message: string }> = [];
 
@@ -567,8 +569,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Invoices =====
-  app.get("/api/invoices", async (_req, res) => {
+  // ===== Invoices (private) =====
+  app.get("/api/invoices", isAuthenticated, async (_req, res) => {
     try {
       const invoices = await storage.getInvoices();
       res.json(invoices);
@@ -578,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/:id", async (req, res) => {
+  app.get("/api/invoices/:id", isAuthenticated, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
@@ -589,7 +591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices", async (req, res) => {
+  app.post("/api/invoices", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertInvoiceSchema.parse({
         ...req.body,
@@ -606,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/invoices/:id", async (req, res) => {
+  app.put("/api/invoices/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertInvoiceSchema.partial().parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id, validatedData);
@@ -620,7 +622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/invoices/:id", async (req, res) => {
+  app.delete("/api/invoices/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteInvoice(req.params.id);
       res.status(204).send();
@@ -630,8 +632,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Maintenance =====
-  app.get("/api/maintenance-requests", async (_req, res) => {
+  // ===== Maintenance (private) =====
+  app.get("/api/maintenance-requests", isAuthenticated, async (_req, res) => {
     try {
       const requests = await storage.getMaintenanceRequests();
       res.json(requests);
@@ -641,7 +643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/maintenance-requests/:id", async (req, res) => {
+  app.get("/api/maintenance-requests/:id", isAuthenticated, async (req, res) => {
     try {
       const request = await storage.getMaintenanceRequest(req.params.id);
       if (!request) return res.status(404).json({ message: "Maintenance request not found" });
@@ -652,7 +654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/maintenance-requests", async (req, res) => {
+  app.post("/api/maintenance-requests", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertMaintenanceRequestSchema.parse(req.body);
       const request = await storage.createMaintenanceRequest(validatedData);
@@ -666,7 +668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/maintenance-requests/:id", async (req, res) => {
+  app.put("/api/maintenance-requests/:id", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertMaintenanceRequestSchema.partial().parse(req.body);
       const request = await storage.updateMaintenanceRequest(req.params.id, validatedData);
@@ -680,7 +682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/maintenance-requests/:id", async (req, res) => {
+  app.delete("/api/maintenance-requests/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteMaintenanceRequest(req.params.id);
       res.status(204).send();
@@ -690,7 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== M-Pesa: STK Push (init & status) =====
+  // ===== M-Pesa (private init/status) =====
   app.post("/api/mpesa/payment", isAuthenticated, async (req, res) => {
     try {
       const { tenantId, unitId, amount, phoneNumber, description } = req.body;
@@ -784,7 +786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== M-Pesa: STK Callback =====
+  // ===== M-Pesa callbacks (public; Daraja must reach them) =====
   app.post("/api/mpesa/callback", async (req, res) => {
     try {
       const callbackData: MPesaCallbackData = req.body.Body.stkCallback;
@@ -836,7 +838,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== 🔑 M-Pesa: Paybill callback (shared handler on two paths) =====
   const handlePaybillCallback: RequestHandler = async (req, res) => {
     try {
       console.log("Paybill callback received:", JSON.stringify(req.body, null, 2));
@@ -858,7 +859,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(
           `No tenant found for phone ${result.phoneNumber} or reference ${result.accountReference}`
         );
-        // Always return 0 to avoid Daraja retries
         return res
           .status(200)
           .json({ ResultCode: 0, ResultDesc: "Payment received but no matching tenant found" });
@@ -880,7 +880,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({ ResultCode: 0, ResultDesc: "Payment processed successfully" });
     } catch (error) {
       console.error("Error processing M-Pesa paybill callback:", error);
-      // Return success to avoid M-Pesa retries for our internal errors
       return res.status(200).json({ ResultCode: 0, ResultDesc: "Callback received" });
     }
   };
@@ -888,7 +887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/mpesa/paybill-callback", handlePaybillCallback);
   app.post("/api/webhooks/paybill-callback", handlePaybillCallback);
 
-  // ===== Payment insights =====
+  // ===== Payment insights (private) =====
   app.get("/api/payments/rent-status", isAuthenticated, async (_req, res) => {
     try {
       const rentStatus = await storage.getClearedRentStatus();
@@ -982,8 +981,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Expenditures =====
-  app.get("/api/expenditures", async (req, res) => {
+  // ===== Expenditures (private) =====
+  app.get("/api/expenditures", isAuthenticated, async (req, res) => {
     try {
       const { propertyId, category } = req.query;
       const expenditures = await storage.getExpenditures(
@@ -997,18 +996,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/expenditures/:id", async (req, res) => {
+  app.get("/api/expenditures/:id", isAuthenticated, async (req, res) => {
     try {
       const expenditure = await storage.getExpenditure(req.params.id);
       if (!expenditure) return res.status(404).json({ message: "Expenditure not found" });
       res.json(expenditure);
     } catch (error) {
       console.error("Error fetching expenditure:", error);
-      res.status(500).json({ message: "Failed to fetch expenditure" });
+      res.status(500).json({ message: "Failed to fetch expenditures" });
     }
   });
 
-  app.post("/api/expenditures", async (req, res) => {
+  app.post("/api/expenditures", isAuthenticated, async (req, res) => {
     try {
       const expenditureData = {
         ...req.body,
@@ -1025,7 +1024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/expenditures/:id", async (req, res) => {
+  app.put("/api/expenditures/:id", isAuthenticated, async (req, res) => {
     try {
       const expenditureData = {
         ...req.body,
@@ -1041,7 +1040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/expenditures/:id", async (req, res) => {
+  app.delete("/api/expenditures/:id", isAuthenticated, async (req, res) => {
     try {
       await storage.deleteExpenditure(req.params.id);
       res.status(204).send();
@@ -1051,7 +1050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/expenditures/analytics/summary", async (req, res) => {
+  app.get("/api/expenditures/analytics/summary", isAuthenticated, async (req, res) => {
     try {
       const { propertyId, startDate, endDate } = req.query;
       const analytics = await storage.getExpenditureAnalytics(
@@ -1066,14 +1065,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Simulation & SSE =====
+  // ===== Simulation & SSE (public for dev/testing) =====
   const { mpesaMockC2B } = await import("./modules/payments/mock");
   const { sse } = await import("./modules/events/sse");
 
   app.get("/events", sse);
   app.post("/mock/mpesa/c2b", mpesaMockC2B);
 
-  app.get("/api/tenants/:id/invoices", async (req, res) => {
+  // tenant invoices (private)
+  app.get("/api/tenants/:id/invoices", isAuthenticated, async (req, res) => {
     try {
       const { status } = req.query;
       const invoices = await storage.getTenantInvoices(req.params.id, status as string);
@@ -1084,11 +1084,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Static files (PDFs etc.) =====
+  // ===== Static files =====
   app.use("/uploads", (await import("express")).default.static(path.resolve("uploads")));
 
-  // ===== Receipts & Invoice PDFs =====
-  app.post("/api/payments/id/:paymentId/receipt", async (req, res) => {
+  // ===== Receipts & Invoice PDFs (private) =====
+  app.post("/api/payments/id/:paymentId/receipt", isAuthenticated, async (req, res) => {
     try {
       const { paymentId } = req.params as any;
       const found = await db.execute(sql`SELECT tx_id FROM payments WHERE id = ${paymentId} LIMIT 1`);
@@ -1110,7 +1110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payments/:txId/receipt.pdf", async (req, res) => {
+  app.get("/api/payments/:txId/receipt.pdf", isAuthenticated, async (req, res) => {
     try {
       const { txId } = req.params as any;
       const { rows } = await db.execute(sql`
@@ -1165,7 +1165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payments/id/:paymentId/receipt.pdf", async (req, res) => {
+  app.get("/api/payments/id/:paymentId/receipt.pdf", isAuthenticated, async (req, res) => {
     try {
       const { paymentId } = req.params as any;
       const { rows } = await db.execute(sql`
@@ -1220,7 +1220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/:id/pdf", async (req, res) => {
+  app.get("/api/invoices/:id/pdf", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params as any;
       const { rows } = await db.execute(sql`
@@ -1280,8 +1280,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Invoice allocations / apply-payment =====
-  app.get("/api/invoices/:id/allocations", async (req, res) => {
+  // ===== Invoice allocations / apply-payment (private) =====
+  app.get("/api/invoices/:id/allocations", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params as any;
       const rows = (
@@ -1316,7 +1316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices/:id/apply-payment", async (req, res) => {
+  app.post("/api/invoices/:id/apply-payment", isAuthenticated, async (req, res) => {
     try {
       const { id: invoiceId } = req.params as any;
       const { paymentId, amount } = req.body as { paymentId: string; amount?: number };
@@ -1368,7 +1368,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ---- finalize server ----
   const httpServer = createServer(app);
   return httpServer;
 }

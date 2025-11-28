@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useAuth } from "@/hooks/useAuth";
+import { useIdleLogout } from "@/hooks/useIdleLogout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Pages
@@ -34,10 +35,15 @@ function AuthedShell() {
   const [collapsed, setCollapsed] = React.useState(false);
   const mainMargin = collapsed ? "ml-20" : "ml-64";
 
+  // Enable idle logout for the entire authenticated shell
+  useIdleLogout();
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-      <main className={`${mainMargin} transition-all duration-300 min-h-screen`}>
+      <main
+        className={`${mainMargin} transition-all duration-300 min-h-screen`}
+      >
         <div className="p-4">
           <ErrorBoundary>
             <Switch>

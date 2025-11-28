@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "./db"; // your existing db client (Drizzle)
 import { sql } from "drizzle-orm";
+import { isAuthenticated } from "./auth";
 
 const router = Router();
 
@@ -18,33 +19,46 @@ function splitName(full: string | null): { firstName: string; lastName: string }
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
+// Utility: unwrap drizzle execute result into an array of rows
+function rowsFrom<T = any>(result: any): T[] {
+  if (!result) return [];
+  if (Array.isArray(result)) return result as T[];
+  if (Array.isArray(result.rows)) return result.rows as T[];
+  return [];
+}
+
 // ---------- STATS ----------
-router.get("/dashboard/stats", async (_req, res) => {
+router.get("/dashboard/stats", isAuthenticated, async (_req, res) => {
   const { start, end } = monthWindow();
   try {
     // Total revenue: successful payments this month
-    const [revRow]: any = await db.execute(sql`
+    const revResult = await db.execute(sql`
       SELECT COALESCE(SUM(p.amount),0)::bigint AS total_revenue
       FROM payments p
       WHERE p.status IN ('SUCCESS','PAID','POSTED')
         AND p.paid_at >= ${start} AND p.paid_at < ${end}
     `);
+    const revRows = rowsFrom<{ total_revenue: string | number | null }>(revResult);
+    const revRow = revRows[0] ?? { total_revenue: 0 };
 
     // Occupied units: distinct units with an ACTIVE lease
-    const [occRow]: any = await db.execute(sql`
+    const occResult = await db.execute(sql`
       SELECT COALESCE(COUNT(DISTINCT l.unit_id),0)::int AS occ
       FROM leases l
       WHERE l.status = 'ACTIVE'
     `);
+    const occRows = rowsFrom<{ occ: number | string | null }>(occResult);
+    const occRow = occRows[0] ?? { occ: 0 };
 
     // Total units
-    const [tuRow]: any = await db.execute(sql`
+    const tuResult = await db.execute(sql`
       SELECT COALESCE(COUNT(*),0)::int AS total_units FROM units
     `);
+    const tuRows = rowsFrom<{ total_units: number | string | null }>(tuResult);
+    const tuRow = tuRows[0] ?? { total_units: 0 };
 
     // Pending payments this month: sum of invoice amounts due this month that are not fully paid
-    // (Uses due_date window only to avoid referencing schema-specific period columns)
-    const [pendRow]: any = await db.execute(sql`
+    const pendResult = await db.execute(sql`
       WITH paid AS (
         SELECT invoice_id, COALESCE(SUM(amount),0) AS paid
         FROM payments
@@ -57,39 +71,54 @@ router.get("/dashboard/stats", async (_req, res) => {
       WHERE i.due_date >= ${start} AND i.due_date < ${end}
         AND (i.status NOT IN ('PAID','SETTLED') OR (i.amount > COALESCE(p.paid,0)))
     `);
+    const pendRows = rowsFrom<{ pending: string | number | null }>(pendResult);
+    const pendRow = pendRows[0] ?? { pending: 0 };
 
     // Overdue count: invoices past due and not paid
-    const [odRow]: any = await db.execute(sql`
+    const odResult = await db.execute(sql`
       SELECT COALESCE(COUNT(*),0)::int AS overdue
       FROM invoices i
       WHERE i.due_date < now()
         AND i.status NOT IN ('PAID','SETTLED')
     `);
+    const odRows = rowsFrom<{ overdue: number | string | null }>(odResult);
+    const odRow = odRows[0] ?? { overdue: 0 };
 
     // Maintenance: if table exists, count; else zero
-    const [hasMaint]: any = await db.execute(sql`
+    const hasMaintResult = await db.execute(sql`
       SELECT to_regclass('public.maintenance_requests') IS NOT NULL AS has
     `);
+    const hasMaintRows = rowsFrom<{ has: boolean }>(hasMaintResult);
+    const hasMaint = !!(hasMaintRows[0]?.has);
+
     let maintenanceCount = 0;
     let urgentMaintenanceCount = 0;
 
-    if (hasMaint?.[0]?.has === true || hasMaint?.has === true) {
-      const [mc]: any = await db.execute(sql`SELECT COALESCE(COUNT(*),0)::int AS c FROM maintenance_requests`);
-      const [umc]: any = await db.execute(sql`
+    if (hasMaint) {
+      const mcResult = await db.execute(sql`
+        SELECT COALESCE(COUNT(*),0)::int AS c FROM maintenance_requests
+      `);
+      const mcRows = rowsFrom<{ c: number | string | null }>(mcResult);
+      const mcRow = mcRows[0] ?? { c: 0 };
+
+      const umcResult = await db.execute(sql`
         SELECT COALESCE(COUNT(*),0)::int AS c
         FROM maintenance_requests
         WHERE priority = 'urgent' AND status <> 'completed'
       `);
-      maintenanceCount = Number(mc.c ?? mc?.[0]?.c ?? 0);
-      urgentMaintenanceCount = Number(umc.c ?? umc?.[0]?.c ?? 0);
+      const umcRows = rowsFrom<{ c: number | string | null }>(umcResult);
+      const umcRow = umcRows[0] ?? { c: 0 };
+
+      maintenanceCount = Number(mcRow.c ?? 0);
+      urgentMaintenanceCount = Number(umcRow.c ?? 0);
     }
 
     res.json({
-      totalRevenue: Number(revRow?.total_revenue ?? revRow?.[0]?.total_revenue ?? 0),
-      occupiedUnits: Number(occRow?.occ ?? occRow?.[0]?.occ ?? 0),
-      totalUnits: Number(tuRow?.total_units ?? tuRow?.[0]?.total_units ?? 0),
-      pendingPayments: Number(pendRow?.pending ?? pendRow?.[0]?.pending ?? 0),
-      overdueCount: Number(odRow?.overdue ?? odRow?.[0]?.overdue ?? 0),
+      totalRevenue: Number(revRow.total_revenue ?? 0),
+      occupiedUnits: Number(occRow.occ ?? 0),
+      totalUnits: Number(tuRow.total_units ?? 0),
+      pendingPayments: Number(pendRow.pending ?? 0),
+      overdueCount: Number(odRow.overdue ?? 0),
       maintenanceCount,
       urgentMaintenanceCount,
     });
@@ -109,9 +138,9 @@ router.get("/dashboard/stats", async (_req, res) => {
 });
 
 // ---------- RECENT PAYMENTS ----------
-router.get("/dashboard/recent-payments", async (_req, res) => {
+router.get("/dashboard/recent-payments", isAuthenticated, async (_req, res) => {
   try {
-    const rows: any[] = await db.execute(sql`
+    const result = await db.execute(sql`
       SELECT
         p.id,
         p.amount,
@@ -129,6 +158,8 @@ router.get("/dashboard/recent-payments", async (_req, res) => {
       ORDER BY p.paid_at DESC
       LIMIT 10
     `);
+
+    const rows = rowsFrom<any>(result);
 
     const out = rows.map((r) => {
       const name = splitName(r.tenant_full_name ?? null);
@@ -150,16 +181,19 @@ router.get("/dashboard/recent-payments", async (_req, res) => {
 });
 
 // ---------- MAINTENANCE REQUESTS ----------
-router.get("/maintenance-requests", async (_req, res) => {
+router.get("/maintenance-requests", isAuthenticated, async (_req, res) => {
   try {
-    const [hasMaint]: any = await db.execute(sql`
+    const hasMaintResult = await db.execute(sql`
       SELECT to_regclass('public.maintenance_requests') IS NOT NULL AS has
     `);
-    if (!(hasMaint?.[0]?.has === true || hasMaint?.has === true)) {
+    const hasMaintRows = rowsFrom<{ has: boolean }>(hasMaintResult);
+    const hasMaint = !!(hasMaintRows[0]?.has);
+
+    if (!hasMaint) {
       return res.json([]); // table not present yet
     }
 
-    const rows: any[] = await db.execute(sql`
+    const result = await db.execute(sql`
       SELECT
         m.id,
         m.title,
@@ -174,6 +208,8 @@ router.get("/maintenance-requests", async (_req, res) => {
       ORDER BY m.created_at DESC
       LIMIT 10
     `);
+
+    const rows = rowsFrom<any>(result);
 
     const out = rows.map((r) => ({
       id: r.id,

@@ -349,13 +349,32 @@ export default function RentIncome() {
 
   // ---------------- data ----------------
   const { data: properties = [], isLoading: propertiesLoading } =
-    useQuery<PropertyWithDetails[]>({ queryKey: ["/api/properties"] });
+    useQuery<PropertyWithDetails[]>({
+      queryKey: ["/api/properties"],
+      queryFn: () => apiRequest<PropertyWithDetails[]>("GET", "/api/properties"),
+      staleTime: 60_000,
+    });
+
   const { data: units = [], isLoading: unitsLoading } =
-    useQuery<UnitWithDetails[]>({ queryKey: ["/api/units"] });
+    useQuery<UnitWithDetails[]>({
+      queryKey: ["/api/units"],
+      queryFn: () => apiRequest<UnitWithDetails[]>("GET", "/api/units"),
+      staleTime: 60_000,
+    });
+
   const { data: tenants = [], isLoading: tenantsLoading } =
-    useQuery<TenantWithDetails[]>({ queryKey: ["/api/tenants"] });
+    useQuery<TenantWithDetails[]>({
+      queryKey: ["/api/tenants"],
+      queryFn: () => apiRequest<TenantWithDetails[]>("GET", "/api/tenants"),
+      staleTime: 60_000,
+    });
+
   const { data: payments = [], isLoading: paymentsLoading } =
-    useQuery<PaymentRow[]>({ queryKey: ["/api/payments"] });
+    useQuery<PaymentRow[]>({
+      queryKey: ["/api/payments"],
+      queryFn: () => apiRequest<PaymentRow[]>("GET", "/api/payments"),
+      staleTime: 60_000,
+    });
 
   // 1) fetch raw summary from backend
   const {
@@ -363,17 +382,37 @@ export default function RentIncome() {
     isLoading: financeLoading,
   } = useQuery<BackendTenantFinanceSummary[]>({
     queryKey: ["/api/tenants/summary"],
+    queryFn: () =>
+      apiRequest<BackendTenantFinanceSummary[]>("GET", "/api/tenants/summary"),
+    staleTime: 60_000,
   });
+
+  // ---------- ID -> entity maps (O(1) lookups instead of repeated .find) ----------
+  const tenantById = useMemo(() => {
+    const m = new Map<string, TenantWithDetails>();
+    tenants.forEach((t) => m.set(t.id, t));
+    return m;
+  }, [tenants]);
+
+  const unitById = useMemo(() => {
+    const m = new Map<string, UnitWithDetails>();
+    units.forEach((u) => m.set(u.id, u));
+    return m;
+  }, [units]);
+
+  const propertyById = useMemo(() => {
+    const m = new Map<string, PropertyWithDetails>();
+    properties.forEach((p) => m.set(p.id, p));
+    return m;
+  }, [properties]);
 
   // 2) map raw data -> rich TenantFinanceRow used by the UI
   const finance: TenantFinanceRow[] = useMemo(() => {
     return financeRaw.map((row) => {
-      const tenant = tenants.find((t) => t.id === row.tenantId);
+      const tenant = tenantById.get(row.tenantId);
       const unit = tenant?.unit || undefined;
       const propertyId = unit?.propertyId ?? null;
-      const property = propertyId
-        ? properties.find((p) => p.id === propertyId)
-        : undefined;
+      const property = propertyId ? propertyById.get(propertyId) : undefined;
 
       // 🔑 Try to read the contractual monthly rent from the unit,
       // fall back to the ledger "rent" if it's missing.
@@ -399,25 +438,7 @@ export default function RentIncome() {
         status: row.status,
       };
     });
-  }, [financeRaw, tenants, properties]);
-
-  const tenantById = useMemo(() => {
-    const m = new Map<string, TenantWithDetails>();
-    tenants.forEach((t) => m.set(t.id, t));
-    return m;
-  }, [tenants]);
-
-  const unitById = useMemo(() => {
-    const m = new Map<string, UnitWithDetails>();
-    units.forEach((u) => m.set(u.id, u));
-    return m;
-  }, [units]);
-
-  const propertyById = useMemo(() => {
-    const m = new Map<string, PropertyWithDetails>();
-    properties.forEach((p) => m.set(p.id, p));
-    return m;
-  }, [properties]);
+  }, [financeRaw, tenantById, propertyById]);
 
   const filteredUnits = useMemo(() => {
     if (selectedPropertyId === "all") return units;
@@ -1439,8 +1460,7 @@ export default function RentIncome() {
 
             <tbody>
               {current.map((r: any) => {
-                const key =
-                  r.id ?? r.tenant_id ?? Math.random().toString(36).slice(2);
+                const key = r.id ?? r.tenant_id ?? "";
                 if (viewMode === "finance") {
                   const t = tenantById.get(r.tenant_id ?? "");
                   const u = r.unit_id ? unitById.get(r.unit_id) : undefined;

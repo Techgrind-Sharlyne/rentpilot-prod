@@ -1,3 +1,4 @@
+// client/src/pages/Dashboard.tsx
 import { QuickActions } from "@/components/quick-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -23,39 +24,51 @@ import type {
 } from "@/types/api";
 
 /**
- * Expected types (unchanged)...
+ * Dynamic dashboard page: stats, recent payments, maintenance, etc.
  */
-
 export default function Dashboard() {
   const qc = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStatsResponse>({
     queryKey: ["/api/dashboard/stats"],
-    queryFn: async () => (await apiRequest("GET", "/api/dashboard/stats")).json(),
+    queryFn: () => apiRequest<DashboardStatsResponse>("GET", "/api/dashboard/stats"),
     staleTime: 60_000,
   });
 
-  const { data: recentPayments, isLoading: paymentsLoading } = useQuery<RecentPaymentsResponse>({
-    queryKey: ["/api/dashboard/recent-payments"],
-    queryFn: async () => (await apiRequest("GET", "/api/dashboard/recent-payments")).json(),
-    staleTime: 60_000,
-  });
+  const { data: recentPayments, isLoading: paymentsLoading } =
+    useQuery<RecentPaymentsResponse>({
+      queryKey: ["/api/dashboard/recent-payments"],
+      queryFn: () =>
+        apiRequest<RecentPaymentsResponse>("GET", "/api/dashboard/recent-payments"),
+      staleTime: 60_000,
+    });
 
   const { data: maintenanceRequests, isLoading: maintenanceLoading } =
     useQuery<MaintenanceRequestsResponse>({
       queryKey: ["/api/maintenance-requests"],
-      queryFn: async () => (await apiRequest("GET", "/api/maintenance-requests")).json(),
+      queryFn: () =>
+        apiRequest<MaintenanceRequestsResponse>("GET", "/api/maintenance-requests"),
       staleTime: 60_000,
     });
 
   const formatKES = (amount: number) =>
-    new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 }).format(amount);
+    new Intl.NumberFormat("en-KE", {
+      style: "currency",
+      currency: "KES",
+      maximumFractionDigits: 0,
+    }).format(amount);
 
   const formatDate = (date: string) =>
-    new Intl.DateTimeFormat("en-KE", { month: "short", day: "numeric", year: "numeric" }).format(new Date(date));
+    new Intl.DateTimeFormat("en-KE", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(date));
 
   const urgentMaintenance =
-    (maintenanceRequests || []).filter((req) => req.priority === "urgent" && req.status !== "completed");
+    (maintenanceRequests || []).filter(
+      (req) => req.priority === "urgent" && req.status !== "completed"
+    );
 
   // one-tap refresh that keeps the dashboard “live”
   const refreshAll = () => {
@@ -71,7 +84,12 @@ export default function Dashboard() {
         subtitle="Welcome back! Here's your property overview"
         rightSlot={
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={refreshAll} className="shadow-soft">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshAll}
+              className="shadow-soft"
+            >
               <RefreshCcw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
@@ -95,22 +113,28 @@ export default function Dashboard() {
           {/* Total Revenue */}
           <Card
             data-testid="total-revenue-card"
-            // NEW: Atlas Nova UI kpi look (subtle gradient, soft shadow, rounded-2xl)
             className="bg-gradient-to-br from-primary/10 to-accent/5 border shadow-soft rounded-2xl"
           >
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Total Revenue</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Total Revenue
+                </h3>
                 <DollarSign className="h-5 w-5" />
               </div>
               {statsLoading ? (
                 <Skeleton className="h-8 w-24" />
               ) : (
-                <div className="text-2xl font-bold" data-testid="total-revenue-value">
+                <div
+                  className="text-2xl font-bold"
+                  data-testid="total-revenue-value"
+                >
                   {formatKES(stats?.totalRevenue ?? 0)}
                 </div>
               )}
-              <p className="text-xs text-muted-foreground mt-1">↗ Monthly rent collection</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                ↗ Monthly rent collection
+              </p>
             </CardContent>
           </Card>
 
@@ -121,19 +145,27 @@ export default function Dashboard() {
           >
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Occupied Units</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Occupied Units
+                </h3>
                 <HomeIcon className="h-5 w-5" />
               </div>
               {statsLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <div className="text-2xl font-bold" data-testid="occupied-units-value">
+                <div
+                  className="text-2xl font-bold"
+                  data-testid="occupied-units-value"
+                >
                   {(stats?.occupiedUnits ?? 0)}/{stats?.totalUnits ?? 0}
                 </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
                 {stats?.totalUnits
-                  ? `${((stats.occupiedUnits / stats.totalUnits) * 100).toFixed(1)}% occupancy`
+                  ? `${(
+                      ((stats?.occupiedUnits ?? 0) / (stats?.totalUnits ?? 1)) *
+                      100
+                    ).toFixed(1)}% occupancy`
                   : "No units"}
               </p>
             </CardContent>
@@ -146,13 +178,18 @@ export default function Dashboard() {
           >
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Pending Payments</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Pending Payments
+                </h3>
                 <Clock className="h-5 w-5" />
               </div>
               {statsLoading ? (
                 <Skeleton className="h-8 w-24" />
               ) : (
-                <div className="text-2xl font-bold" data-testid="pending-payments-value">
+                <div
+                  className="text-2xl font-bold"
+                  data-testid="pending-payments-value"
+                >
                   {formatKES(stats?.pendingPayments ?? 0)}
                 </div>
               )}
@@ -169,13 +206,18 @@ export default function Dashboard() {
           >
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-muted-foreground">Maintenance</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Maintenance
+                </h3>
                 <Wrench className="h-5 w-5" />
               </div>
               {statsLoading ? (
                 <Skeleton className="h-8 w-12" />
               ) : (
-                <div className="text-2xl font-bold" data-testid="maintenance-count-value">
+                <div
+                  className="text-2xl font-bold"
+                  data-testid="maintenance-count-value"
+                >
                   {stats?.maintenanceCount ?? 0}
                 </div>
               )}
@@ -188,7 +230,7 @@ export default function Dashboard() {
 
         {/* Charts Row - Placeholder */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="ui-content"> {/* NEW: consistent surface */}
+          <Card className="ui-content">
             <CardHeader>
               <CardTitle>Revenue Trends</CardTitle>
             </CardHeader>
@@ -252,7 +294,9 @@ export default function Dashboard() {
                       <p className="font-medium text-sm">
                         {formatKES(Number(payment.amount))}
                       </p>
-                      <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(payment.paymentDate)}
+                      </p>
                     </div>
                   </div>
                 ))
@@ -291,19 +335,23 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">
                         {request.unit?.unitNumber} - {request.property?.name}
                       </p>
-                      <p className="text-xs text-muted-foreground">Created {formatDate(request.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Created {formatDate(request.createdAt)}
+                      </p>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-muted-foreground">No urgent maintenance requests</p>
+                  <p className="text-muted-foreground">
+                    No urgent maintenance requests
+                  </p>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Quick Stats (sample static for now) */}
+          {/* Quick Stats (static sample for now) */}
           <Card data-testid="quick-stats-card" className="ui-content">
             <CardHeader>
               <CardTitle>Quick Stats</CardTitle>
@@ -313,18 +361,21 @@ export default function Dashboard() {
                 <span className="text-sm text-muted-foreground">Collection Rate</span>
                 <div className="flex items-center space-x-2">
                   <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
-                    {/* Use tokenized primary to keep brand color consistent in dark/light */}
                     <div className="w-4/5 h-full bg-primary" />
                   </div>
                   <span className="text-sm font-medium">94%</span>
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Avg Response Time</span>
+                <span className="text-sm text-muted-foreground">
+                  Avg Response Time
+                </span>
                 <span className="text-sm font-medium">2.4 hrs</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Tenant Satisfaction</span>
+                <span className="text-sm text-muted-foreground">
+                  Tenant Satisfaction
+                </span>
                 <span className="text-sm font-medium">4.6/5</span>
               </div>
             </CardContent>

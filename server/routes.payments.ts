@@ -13,11 +13,17 @@ import {
  *   id, tenant_id, unit_id, amount, status, method, source, tx_id, msisdn, paid_at
  */
 export async function listPayments(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
   try {
+    // Optional ?limit=, default 500, hard-capped at 2000 for safety
+    const rawLimit = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
+    const safeLimit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(rawLimit, 1), 2000)
+      : 500;
+
     const { rows } = await db.execute<any>(sql`
       SELECT
         e.id,
@@ -33,6 +39,7 @@ export async function listPayments(
       FROM ledger_entries e
       WHERE e.direction = 'CREDIT'::ledger_entry_direction
       ORDER BY e.effective_at DESC, e.created_at DESC
+      LIMIT ${safeLimit}
     `);
 
     res.json(rows);
@@ -90,7 +97,7 @@ export async function createPayment(
         .json({ message: "amount must be a positive number" });
     }
 
-       const paidAtDate = paidAt ? new Date(paidAt) : new Date();
+    const paidAtDate = paidAt ? new Date(paidAt) : new Date();
 
     // Mirror payment into the ledger as a CREDIT.
     await insertLedgerCredit({
@@ -103,7 +110,6 @@ export async function createPayment(
       // leaseId, propertyId, invoiceId, paymentId can be wired later if needed
       entryType: "PAYMENT",                    // explicit, though default would also be PAYMENT
     });
-
 
     res.status(201).json({ ok: true });
   } catch (err) {
