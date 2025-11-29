@@ -1,5 +1,6 @@
+// server/routes.dashboard.ts
 import { Router } from "express";
-import { db } from "./db"; // your existing db client (Drizzle)
+import { db } from "./db"; // Drizzle client
 import { sql } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 
@@ -35,8 +36,7 @@ router.get("/dashboard/stats", isAuthenticated, async (_req, res) => {
     const revResult = await db.execute(sql`
       SELECT COALESCE(SUM(p.amount),0)::bigint AS total_revenue
       FROM payments p
-      WHERE p.status IN ('SUCCESS','PAID','POSTED')
-        AND p.paid_at >= ${start} AND p.paid_at < ${end}
+      WHERE p.paid_at >= ${start} AND p.paid_at < ${end}
     `);
     const revRows = rowsFrom<{ total_revenue: string | number | null }>(revResult);
     const revRow = revRows[0] ?? { total_revenue: 0 };
@@ -62,7 +62,6 @@ router.get("/dashboard/stats", isAuthenticated, async (_req, res) => {
       WITH paid AS (
         SELECT invoice_id, COALESCE(SUM(amount),0) AS paid
         FROM payments
-        WHERE status IN ('SUCCESS','PAID','POSTED')
         GROUP BY invoice_id
       )
       SELECT COALESCE(SUM(GREATEST(i.amount - COALESCE(p.paid,0),0)),0)::bigint AS pending
@@ -138,24 +137,22 @@ router.get("/dashboard/stats", isAuthenticated, async (_req, res) => {
 });
 
 // ---------- RECENT PAYMENTS ----------
+// Use the SAME data path as Rent Income: payments + tenants + units + properties.
 router.get("/dashboard/recent-payments", isAuthenticated, async (_req, res) => {
   try {
     const result = await db.execute(sql`
       SELECT
         p.id,
         p.amount,
-        p.paid_at AS payment_date,
-        t.full_name AS tenant_full_name,
-        u.code      AS unit_number,
-        pr.name     AS property_name
+        p.paid_at                     AS payment_date,
+        t.full_name                   AS tenant_full_name,
+        u.code                        AS unit_number,
+        pr.name                       AS property_name
       FROM payments p
-      LEFT JOIN invoices i ON i.id = p.invoice_id
-      LEFT JOIN leases   l ON l.id = i.lease_id
-      LEFT JOIN tenants  t ON t.id = l.tenant_id
-      LEFT JOIN units    u ON u.id = l.unit_id
+      LEFT JOIN tenants    t  ON t.id = p.tenant_id
+      LEFT JOIN units      u  ON u.id = p.unit_id
       LEFT JOIN properties pr ON pr.id = u.property_id
-      WHERE p.status IN ('SUCCESS','PAID','POSTED')
-      ORDER BY p.paid_at DESC
+      ORDER BY p.paid_at DESC NULLS LAST
       LIMIT 10
     `);
 
@@ -166,8 +163,12 @@ router.get("/dashboard/recent-payments", isAuthenticated, async (_req, res) => {
       return {
         id: r.id,
         amount: Number(r.amount ?? 0),
-        paymentDate: r.payment_date ? new Date(r.payment_date).toISOString() : new Date().toISOString(),
-        tenant: name ? { firstName: name.firstName, lastName: name.lastName } : null,
+        paymentDate: r.payment_date
+          ? new Date(r.payment_date).toISOString()
+          : new Date().toISOString(),
+        tenant: name
+          ? { firstName: name.firstName, lastName: name.lastName }
+          : null,
         unit: r.unit_number ? { unitNumber: r.unit_number } : null,
         property: r.property_name ? { name: r.property_name } : null,
       };
@@ -216,7 +217,9 @@ router.get("/maintenance-requests", isAuthenticated, async (_req, res) => {
       title: r.title,
       priority: r.priority,
       status: r.status,
-      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      createdAt: r.created_at
+        ? new Date(r.created_at).toISOString()
+        : new Date().toISOString(),
       unit: r.unit_number ? { unitNumber: r.unit_number } : null,
       property: r.property_name ? { name: r.property_name } : null,
     }));
