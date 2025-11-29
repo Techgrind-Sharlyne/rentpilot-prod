@@ -1,11 +1,11 @@
 // client/src/pages/Dashboard.tsx
+import { useMemo } from "react";
 import { QuickActions } from "@/components/quick-actions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DollarSign,
@@ -18,24 +18,74 @@ import {
 } from "lucide-react";
 
 import type {
-  DashboardStatsResponse,
   RecentPaymentsResponse,
   MaintenanceRequestsResponse,
 } from "@/types/api";
+import type { TenantWithDetails, UnitWithDetails } from "@/stubs/schema";
+
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
 
 /**
- * Dynamic dashboard page: stats, recent payments, maintenance, etc.
+ * Finance summary shape returned by /api/tenants/summary
+ * (must match server/routes.finance-summary.ts output)
  */
+type TenantFinanceSummary = {
+  tenantId: string;
+  rent: number;
+  paidThisMonth: number;
+  arrearsToDate: number;
+  balance: number;
+  status: "Cleared" | "Overdue" | "Prepaid";
+};
+
 export default function Dashboard() {
   const qc = useQueryClient();
 
-  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStatsResponse>({
-    queryKey: ["/api/dashboard/stats"],
-    queryFn: () => apiRequest<DashboardStatsResponse>("GET", "/api/dashboard/stats"),
+  // --- Base data the app already uses elsewhere ---
+
+  const {
+    data: tenants = [],
+    isLoading: tenantsLoading,
+    isError: tenantsError,
+  } = useQuery<TenantWithDetails[]>({
+    queryKey: ["/api/tenants"],
+    queryFn: () => apiRequest<TenantWithDetails[]>("GET", "/api/tenants"),
     staleTime: 60_000,
   });
 
-  const { data: recentPayments, isLoading: paymentsLoading } =
+  const {
+    data: units = [],
+    isLoading: unitsLoading,
+    isError: unitsError,
+  } = useQuery<UnitWithDetails[]>({
+    queryKey: ["/api/units"],
+    queryFn: () => apiRequest<UnitWithDetails[]>("GET", "/api/units"),
+    staleTime: 60_000,
+  });
+
+  const {
+    data: financeSummary = [],
+    isLoading: financeLoading,
+    isError: financeError,
+  } = useQuery<TenantFinanceSummary[]>({
+    queryKey: ["/api/tenants/summary"],
+    queryFn: () =>
+      apiRequest<TenantFinanceSummary[]>("GET", "/api/tenants/summary"),
+    staleTime: 60_000,
+  });
+
+  const { data: recentPayments = [], isLoading: paymentsLoading } =
     useQuery<RecentPaymentsResponse>({
       queryKey: ["/api/dashboard/recent-payments"],
       queryFn: () =>
@@ -43,7 +93,7 @@ export default function Dashboard() {
       staleTime: 60_000,
     });
 
-  const { data: maintenanceRequests, isLoading: maintenanceLoading } =
+  const { data: maintenanceRequests = [], isLoading: maintenanceLoading } =
     useQuery<MaintenanceRequestsResponse>({
       queryKey: ["/api/maintenance-requests"],
       queryFn: () =>
@@ -51,12 +101,113 @@ export default function Dashboard() {
       staleTime: 60_000,
     });
 
+  // --- Derived dashboard stats from existing data ---
+
+  const stats = useMemo(() => {
+    if (!financeSummary || !units) {
+      return {
+        totalRevenue: 0,
+        occupiedUnits: 0,
+        totalUnits: 0,
+        pendingPayments: 0,
+        overdueCount: 0,
+        maintenanceCount: maintenanceRequests.length,
+        urgentMaintenanceCount: maintenanceRequests.filter(
+          (m) => m.priority === "urgent" && m.status !== "completed"
+        ).length,
+      };
+    }
+
+    const totalRevenue = financeSummary.reduce(
+      (sum, f) => sum + (Number(f.paidThisMonth) || 0),
+      0
+    );
+
+    const pendingPayments = financeSummary.reduce(
+      (sum, f) => sum + (Number(f.arrearsToDate) || 0),
+      0
+    );
+
+    const overdueCount = financeSummary.filter(
+      (f) => f.status === "Overdue"
+    ).length;
+
+    const totalUnits = units.length;
+
+    const occupiedUnits = tenants.reduce((count, t: any) => {
+      if (t.currentLease && t.currentLease.status === "active") {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+
+    const maintenanceCount = maintenanceRequests.length;
+    const urgentMaintenanceCount = maintenanceRequests.filter(
+      (m) => m.priority === "urgent" && m.status !== "completed"
+    ).length;
+
+    return {
+      totalRevenue,
+      occupiedUnits,
+      totalUnits,
+      pendingPayments,
+      overdueCount,
+      maintenanceCount,
+      urgentMaintenanceCount,
+    };
+  }, [financeSummary, units, tenants, maintenanceRequests]);
+
+  const anyCoreLoading =
+    tenantsLoading || unitsLoading || financeLoading || maintenanceLoading;
+
+  // --- Chart data: revenue per tenant (this month) ---
+
+  const revenueByTenant = useMemo(() => {
+    if (!financeSummary || financeSummary.length === 0) return [];
+
+    const financeByTenant = new Map(
+      financeSummary.map((f) => [f.tenantId, f])
+    );
+
+    return tenants
+      .map((t: any) => {
+        const summary = financeByTenant.get(t.id);
+        if (!summary) return null;
+
+        const nameFromFull =
+          t.fullName ||
+          [t.firstName, t.lastName].filter(Boolean).join(" ").trim();
+        const label = nameFromFull || "Tenant";
+
+        return {
+          name:
+            label.length > 14
+              ? label.slice(0, 13).trimEnd() + "…"
+              : label || "Tenant",
+          paidThisMonth: Number(summary.paidThisMonth) || 0,
+          arrears: Number(summary.arrearsToDate) || 0,
+        };
+      })
+      .filter(Boolean) as { name: string; paidThisMonth: number; arrears: number }[];
+  }, [financeSummary, tenants]);
+
+  // --- Chart data: occupancy pie ---
+
+  const occupancyData = useMemo(() => {
+    const occ = stats.occupiedUnits;
+    const vac = Math.max(stats.totalUnits - stats.occupiedUnits, 0);
+    return [
+      { name: "Occupied", value: occ },
+      { name: "Vacant", value: vac },
+    ];
+  }, [stats.occupiedUnits, stats.totalUnits]);
+
   const formatKES = (amount: number) =>
     new Intl.NumberFormat("en-KE", {
       style: "currency",
       currency: "KES",
       maximumFractionDigits: 0,
-    }).format(amount);
+    }).format(amount || 0);
 
   const formatDate = (date: string) =>
     new Intl.DateTimeFormat("en-KE", {
@@ -72,7 +223,9 @@ export default function Dashboard() {
 
   // one-tap refresh that keeps the dashboard “live”
   const refreshAll = () => {
-    qc.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    qc.invalidateQueries({ queryKey: ["/api/tenants"] });
+    qc.invalidateQueries({ queryKey: ["/api/units"] });
+    qc.invalidateQueries({ queryKey: ["/api/tenants/summary"] });
     qc.invalidateQueries({ queryKey: ["/api/dashboard/recent-payments"] });
     qc.invalidateQueries({ queryKey: ["/api/maintenance-requests"] });
   };
@@ -118,22 +271,22 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
-                  Total Revenue
+                  Total Revenue (MTD)
                 </h3>
                 <DollarSign className="h-5 w-5" />
               </div>
-              {statsLoading ? (
+              {anyCoreLoading ? (
                 <Skeleton className="h-8 w-24" />
               ) : (
                 <div
                   className="text-2xl font-bold"
                   data-testid="total-revenue-value"
                 >
-                  {formatKES(stats?.totalRevenue ?? 0)}
+                  {formatKES(stats.totalRevenue)}
                 </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                ↗ Monthly rent collection
+                ↗ Sum of all tenant payments this month
               </p>
             </CardContent>
           </Card>
@@ -150,20 +303,20 @@ export default function Dashboard() {
                 </h3>
                 <HomeIcon className="h-5 w-5" />
               </div>
-              {statsLoading ? (
+              {anyCoreLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
                 <div
                   className="text-2xl font-bold"
                   data-testid="occupied-units-value"
                 >
-                  {(stats?.occupiedUnits ?? 0)}/{stats?.totalUnits ?? 0}
+                  {stats.occupiedUnits}/{stats.totalUnits}
                 </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                {stats?.totalUnits
+                {stats.totalUnits
                   ? `${(
-                      ((stats?.occupiedUnits ?? 0) / (stats?.totalUnits ?? 1)) *
+                      (stats.occupiedUnits / (stats.totalUnits || 1)) *
                       100
                     ).toFixed(1)}% occupancy`
                   : "No units"}
@@ -179,22 +332,22 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
-                  Pending Payments
+                  Pending Payments (Arrears)
                 </h3>
                 <Clock className="h-5 w-5" />
               </div>
-              {statsLoading ? (
+              {anyCoreLoading ? (
                 <Skeleton className="h-8 w-24" />
               ) : (
                 <div
                   className="text-2xl font-bold"
                   data-testid="pending-payments-value"
                 >
-                  {formatKES(stats?.pendingPayments ?? 0)}
+                  {formatKES(stats.pendingPayments)}
                 </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                {stats?.overdueCount ?? 0} overdue payments
+                {stats.overdueCount} tenants overdue
               </p>
             </CardContent>
           </Card>
@@ -211,52 +364,92 @@ export default function Dashboard() {
                 </h3>
                 <Wrench className="h-5 w-5" />
               </div>
-              {statsLoading ? (
+              {maintenanceLoading ? (
                 <Skeleton className="h-8 w-12" />
               ) : (
                 <div
                   className="text-2xl font-bold"
                   data-testid="maintenance-count-value"
                 >
-                  {stats?.maintenanceCount ?? 0}
+                  {stats.maintenanceCount}
                 </div>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                {stats?.urgentMaintenanceCount ?? 0} urgent requests
+                {stats.urgentMaintenanceCount} urgent requests
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Charts Row - Placeholder */}
+        {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Revenue Trends - simple bar chart per tenant */}
           <Card className="ui-content">
             <CardHeader>
-              <CardTitle>Revenue Trends</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Revenue Trends (MTD by Tenant)
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="h-72 bg-muted rounded-lg flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <TrendingUp className="h-12 w-12 mx-auto mb-2" />
-                  <p className="text-lg font-medium">Chart Coming Soon</p>
-                  <p className="text-sm">Revenue analytics will be displayed here</p>
+            <CardContent className="h-72">
+              {anyCoreLoading ? (
+                <Skeleton className="w-full h-full" />
+              ) : revenueByTenant.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                  No payments this month yet.
                 </div>
-              </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={revenueByTenant}>
+                    <XAxis dataKey="name" fontSize={11} interval={0} />
+                    <YAxis
+                      tickFormatter={(val) => `${Math.round(val / 1000)}k`}
+                      fontSize={11}
+                    />
+                    <Tooltip
+                      formatter={(val: any) => formatKES(Number(val))}
+                    />
+                    <Legend />
+                    <Bar dataKey="paidThisMonth" name="Paid (MTD)" />
+                    <Bar dataKey="arrears" name="Arrears To Date" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
+          {/* Occupancy Overview - pie chart */}
           <Card className="ui-content">
             <CardHeader>
               <CardTitle>Occupancy Overview</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="h-72 bg-muted rounded-lg flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <HomeIcon className="h-12 w-12 mx-auto mb-2" />
-                  <p className="text-lg font-medium">Chart Coming Soon</p>
-                  <p className="text-sm">Occupancy trends will be displayed here</p>
+            <CardContent className="h-72">
+              {anyCoreLoading ? (
+                <Skeleton className="w-full h-full" />
+              ) : stats.totalUnits === 0 ? (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                  No units configured yet.
                 </div>
-              </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={occupancyData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius="45%"
+                      outerRadius="70%"
+                      paddingAngle={4}
+                    >
+                      {occupancyData.map((entry, index) => (
+                        <Cell key={index} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -351,32 +544,60 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* Quick Stats (static sample for now) */}
+          {/* Quick Stats (still simple, but now backed by real stats where possible) */}
           <Card data-testid="quick-stats-card" className="ui-content">
             <CardHeader>
               <CardTitle>Quick Stats</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Collection Rate</span>
+                <span className="text-sm text-muted-foreground">
+                  Collection Rate (MTD)
+                </span>
                 <div className="flex items-center space-x-2">
                   <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="w-4/5 h-full bg-primary" />
+                    <div
+                      className="h-full bg-primary"
+                      style={{
+                        width:
+                          stats.pendingPayments + stats.totalRevenue > 0
+                            ? `${
+                                (stats.totalRevenue /
+                                  (stats.totalRevenue + stats.pendingPayments)) *
+                                100
+                              }%`
+                            : "0%",
+                      }}
+                    />
                   </div>
-                  <span className="text-sm font-medium">94%</span>
+                  <span className="text-sm font-medium">
+                    {stats.pendingPayments + stats.totalRevenue > 0
+                      ? `${(
+                          (stats.totalRevenue /
+                            (stats.totalRevenue + stats.pendingPayments)) *
+                          100
+                        ).toFixed(1)}%`
+                      : "0%"}
+                  </span>
                 </div>
               </div>
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">
-                  Avg Response Time
+                  Active Tenants
                 </span>
-                <span className="text-sm font-medium">2.4 hrs</span>
+                <span className="text-sm font-medium">
+                  {tenants.length || 0}
+                </span>
               </div>
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">
-                  Tenant Satisfaction
+                  Overdue Tenants
                 </span>
-                <span className="text-sm font-medium">4.6/5</span>
+                <span className="text-sm font-medium">
+                  {stats.overdueCount}
+                </span>
               </div>
             </CardContent>
           </Card>
